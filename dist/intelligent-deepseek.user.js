@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.1.1
+// @version      1.2.0
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -574,6 +574,45 @@ html.dark .dsui-widget {
 }
 .dsui-code::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dsui-code code { font: inherit; color: inherit; }
+
+/* dsui：去掉卡片外框，融入对话；高度自然延展 */
+.dsui-widget[data-kind="dsui"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  margin: 8px 0 14px;
+  overflow: visible;
+  animation: none;
+}
+.dsui-widget[data-kind="dsui"] .dsui-placeholder {
+  position: static;
+  min-height: 72px;
+  background: transparent;
+  color: var(--dsui-muted);
+}
+.dsui-widget[data-kind="dsui"] .dsui-frame { background: transparent; }
+.dsui-widget[data-kind="dsui"] .dsui-foot {
+  border: 0;
+  background: transparent;
+  padding: 4px 2px 0;
+}
+.dsui-widget[data-kind="dsui"] .dsui-code { border-radius: 10px; }
+
+/* 长组件底部用轻微渐隐提示还有内容（不遮挡交互） */
+.dsui-widget[data-kind="dsui"] .dsui-body::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--dsui-bg) 55%, transparent));
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.dsui-widget[data-kind="dsui"][data-overflow="1"] .dsui-body::after { opacity: 1; }
 .dsui-foot {
   padding: 7px 12px;
   border-top: 1px solid var(--dsui-border);
@@ -709,10 +748,10 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     const title = m?.[1]?.trim();
     return title ? decodeEntities(title).slice(0, 80) : fallback;
   }
-  function clampWidgetHeight(height, viewportHeight = window.innerHeight) {
+  function clampWidgetHeight(height, viewportHeight = window.innerHeight, options = {}) {
     const content = Number(height) || 0;
-    const min = 140;
-    const max = Math.max(min + 80, Math.round(viewportHeight * 0.72));
+    const min = Number(options.min) || 140;
+    const max = Number(options.max) || Math.max(min + 80, Math.round(viewportHeight * 0.72));
     return Math.min(Math.max(content, min), max);
   }
   var decoderEl = null;
@@ -1149,19 +1188,21 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       const root = document.createElement("div");
       root.className = "dsui-widget";
       root.dataset.dsuiId = this.id;
+      root.dataset.kind = this.kind;
       root.dataset.state = "streaming";
       const actions = this.kind === "html" ? `<span class="dsui-actions">
              <button type="button" class="dsui-btn" data-act="code" title="切换查看源码">代码</button>
              <button type="button" class="dsui-btn" data-act="copy" title="复制源码">复制</button>
              <button type="button" class="dsui-btn" data-act="download" title="下载 HTML">下载</button>
            </span>` : "";
+      const head = this.kind === "html" ? `<div class="dsui-head">
+             <span class="dsui-mark" aria-hidden="true">✦</span>
+             <span class="dsui-title">交互界面</span>
+             <span class="dsui-status" data-busy="1">生成中…</span>
+             ${actions}
+           </div>` : "";
       root.innerHTML = `
-      <div class="dsui-head">
-        <span class="dsui-mark" aria-hidden="true">✦</span>
-        <span class="dsui-title">交互界面</span>
-        <span class="dsui-status" data-busy="1">生成中…</span>
-        ${actions}
-      </div>
+      ${head}
       <div class="dsui-body">
         <div class="dsui-placeholder"><span class="dsui-spinner"></span><span>正在构建界面…</span></div>
         <iframe class="dsui-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="交互界面"></iframe>
@@ -1178,7 +1219,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       this.codeEl = root.querySelector(".dsui-code code");
       this.footEl = root.querySelector(".dsui-foot");
       this.sendTimes = [];
-      this.iframe.style.height = "260px";
+      this.iframe.style.height = this.kind === "dsui" ? "120px" : "260px";
       root.addEventListener("click", (event) => this.onClick(event));
       this.iframe.addEventListener("load", () => {
         if (this.navigated) return;
@@ -1279,7 +1320,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       this.ready = false;
       if (!this.el) return;
       const title = extractTitle(next, "交互界面");
-      if (this.titleEl.textContent !== title) this.titleEl.textContent = title;
+      if (this.titleEl && this.titleEl.textContent !== title) this.titleEl.textContent = title;
       this.setStatus("生成中…", true);
       if (this.el) this.el.dataset.state = "streaming";
       if (this.showCode) this.codeEl.textContent = next;
@@ -1296,7 +1337,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       clearTimeout(this.statusTimer);
       this.statusTimer = setTimeout(() => {
         if (this.footEl) this.footEl.hidden = true;
-        this.statusEl.textContent = "";
+        if (this.statusEl) this.statusEl.textContent = "";
       }, 2600);
     }
     scheduleRender(immediate) {
@@ -1377,7 +1418,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
           this.applyHeight(data.height);
           break;
         case "title":
-          if (data.text) this.titleEl.textContent = String(data.text).slice(0, 80);
+          if (data.text && this.titleEl) this.titleEl.textContent = String(data.text).slice(0, 80);
           break;
         case "error":
           this.showError(data.message);
@@ -1390,9 +1431,17 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       }
     }
     applyHeight(height) {
-      const h = clampWidgetHeight(height, window.innerHeight);
+      const isDsui = this.kind === "dsui";
+      const h = clampWidgetHeight(height, window.innerHeight, {
+        // dsui 去掉卡片外框后让高度自然延展，由页面滚动承接
+        min: isDsui ? 60 : 140,
+        max: isDsui ? 6e3 : Math.max(220, Math.round(window.innerHeight * 0.72))
+      });
       this.lastHeight = h;
       this.iframe.style.height = `${h}px`;
+      if (isDsui && this.el) {
+        this.el.dataset.overflow = Number(height) > h + 2 ? "1" : "0";
+      }
     }
     async sendMessageToChat(text) {
       const content = String(text ?? "").trim();
@@ -1697,7 +1746,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.1.1";
+  var VERSION = false ? "dev" : "1.2.0";
   var TOGGLES = [
     { key: "enabled", label: "启用 Intelligent UI", desc: "总开关：关闭后不注入、不渲染" },
     { key: "injectPrompt", label: "自动注入界面协议", desc: "新会话首条消息注入一次（推荐）" },
@@ -1889,7 +1938,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.1.1", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.2.0", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -1918,7 +1967,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.1.1",
+      version: "1.2.0",
       getSettings,
       saveSettings,
       resetSettings: () => {
@@ -1932,7 +1981,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.1.1",
+          version: "1.2.0",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

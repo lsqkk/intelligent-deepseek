@@ -96,7 +96,15 @@ const rendered = await waitFor(async () => (await page.locator('.dsui-widget').c
 check('dsui 代码块自动渲染为卡片', rendered);
 await waitFor(async () => (await page.locator('.dsui-widget[data-state="ready"]').count()) === 1, 10000);
 check('卡片就绪状态', (await page.locator('.dsui-widget[data-state="ready"]').count()) === 1);
-check('卡片标题取自 <title>', (await page.locator('.dsui-title').first().innerText()) === 'Mock 计算器');
+check(
+  'dsui 卡片无标题栏/外框（融入对话）',
+  (await page.locator('.dsui-widget[data-kind="dsui"] .dsui-head').count()) === 0 &&
+    (await page.evaluate(() => {
+      const w = document.querySelector('.dsui-widget[data-kind="dsui"]');
+      const s = w ? getComputedStyle(w) : null;
+      return Boolean(s && s.borderTopWidth === '0px' && s.boxShadow === 'none' && s.backgroundColor === 'rgba(0, 0, 0, 0)');
+    }))
+);
 check('原代码块被隐藏', (await page.locator('.md-code-block[data-dsui-hidden]').count()) === 1);
 check(
   'dsui 卡片不显示代码/复制/下载工具栏',
@@ -250,7 +258,7 @@ const navState = await page.evaluate(() => {
 });
 check(
   '组件自行跳转外部页面被拦截并提示',
-  String(navState.status).includes('已停止') && String(navState.foot).includes('跳转'),
+  String(navState.foot).includes('跳转'),
   JSON.stringify(navState)
 );
 

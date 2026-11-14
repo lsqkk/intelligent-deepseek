@@ -152,6 +152,45 @@ html.dark .dsui-widget {
 }
 .dsui-code::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dsui-code code { font: inherit; color: inherit; }
+
+/* dsui：去掉卡片外框，融入对话；高度自然延展 */
+.dsui-widget[data-kind="dsui"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  margin: 8px 0 14px;
+  overflow: visible;
+  animation: none;
+}
+.dsui-widget[data-kind="dsui"] .dsui-placeholder {
+  position: static;
+  min-height: 72px;
+  background: transparent;
+  color: var(--dsui-muted);
+}
+.dsui-widget[data-kind="dsui"] .dsui-frame { background: transparent; }
+.dsui-widget[data-kind="dsui"] .dsui-foot {
+  border: 0;
+  background: transparent;
+  padding: 4px 2px 0;
+}
+.dsui-widget[data-kind="dsui"] .dsui-code { border-radius: 10px; }
+
+/* 长组件底部用轻微渐隐提示还有内容（不遮挡交互） */
+.dsui-widget[data-kind="dsui"] .dsui-body::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--dsui-bg) 55%, transparent));
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.dsui-widget[data-kind="dsui"][data-overflow="1"] .dsui-body::after { opacity: 1; }
 .dsui-foot {
   padding: 7px 12px;
   border-top: 1px solid var(--dsui-border);

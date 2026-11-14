@@ -85,6 +85,7 @@ DeepSeek 会把带协议的用户消息原样存到服务端。刷新/切会话�
 2. 语言为 `dsui`（或开启 `renderPlainHtml` 且是完整 `<!doctype html>/<html>`）时：
    - 隐藏代码块（`data-dsui-hidden` + `display:none!important`）；
    - 在代码块后插入卡片 `.dsui-widget`；
+   - **dsui 卡片无标题栏/外框/工具栏**（`data-kind="dsui"`，透明背景、无圆角/阴影），高度按内容自然延展（上限 6000px，由页面滚动承接）；html 兜底卡片保留标题与代码/复制/下载，71vh 上限；
    - 卡片里的 iframe 用 `srcdoc` 加载「模型 HTML + 注入的 bridge」，CSP 禁网。
 3. 流式期间每次代码内容变化（>650ms 节流）更新 iframe；内容未形成可渲染结构时显示
    「正在构建界面…」占位，避免闪白。

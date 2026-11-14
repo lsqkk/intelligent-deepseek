@@ -54,10 +54,10 @@ export function extractTitle(html, fallback = '交互界面') {
   const title = m?.[1]?.trim();
   return title ? decodeEntities(title).slice(0, 80) : fallback;
 }
-export function clampWidgetHeight(height, viewportHeight = window.innerHeight) {
+export function clampWidgetHeight(height, viewportHeight = window.innerHeight, options = {}) {
   const content = Number(height) || 0;
-  const min = 140;
-  const max = Math.max(min + 80, Math.round(viewportHeight * 0.72));
+  const min = Number(options.min) || 140;
+  const max = Number(options.max) || Math.max(min + 80, Math.round(viewportHeight * 0.72));
   return Math.min(Math.max(content, min), max);
 }
 

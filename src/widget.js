@@ -339,6 +339,7 @@ export class Widget {
     const root = document.createElement('div');
     root.className = 'dsui-widget';
     root.dataset.dsuiId = this.id;
+    root.dataset.kind = this.kind;
     root.dataset.state = 'streaming';
     const actions =
       this.kind === 'html'
@@ -348,13 +349,17 @@ export class Widget {
              <button type="button" class="dsui-btn" data-act="download" title="下载 HTML">下载</button>
            </span>`
         : '';
+    const head =
+      this.kind === 'html'
+        ? `<div class="dsui-head">
+             <span class="dsui-mark" aria-hidden="true">✦</span>
+             <span class="dsui-title">交互界面</span>
+             <span class="dsui-status" data-busy="1">生成中…</span>
+             ${actions}
+           </div>`
+        : '';
     root.innerHTML = `
-      <div class="dsui-head">
-        <span class="dsui-mark" aria-hidden="true">✦</span>
-        <span class="dsui-title">交互界面</span>
-        <span class="dsui-status" data-busy="1">生成中…</span>
-        ${actions}
-      </div>
+      ${head}
       <div class="dsui-body">
         <div class="dsui-placeholder"><span class="dsui-spinner"></span><span>正在构建界面…</span></div>
         <iframe class="dsui-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="交互界面"></iframe>
@@ -374,7 +379,7 @@ export class Widget {
     this.sendTimes = [];
 
     // 初始高度，避免 iframe 高度为 0 时内容测量异常
-    this.iframe.style.height = '260px';
+    this.iframe.style.height = this.kind === 'dsui' ? '120px' : '260px';
 
     root.addEventListener('click', (event) => this.onClick(event));
     this.iframe.addEventListener('load', () => {
@@ -484,7 +489,7 @@ export class Widget {
     if (!this.el) return;
 
     const title = extractTitle(next, '交互界面');
-    if (this.titleEl.textContent !== title) this.titleEl.textContent = title;
+    if (this.titleEl && this.titleEl.textContent !== title) this.titleEl.textContent = title;
     this.setStatus('生成中…', true);
     if (this.el) this.el.dataset.state = 'streaming';
 
@@ -504,7 +509,7 @@ export class Widget {
     clearTimeout(this.statusTimer);
     this.statusTimer = setTimeout(() => {
       if (this.footEl) this.footEl.hidden = true;
-      this.statusEl.textContent = '';
+      if (this.statusEl) this.statusEl.textContent = '';
     }, 2600);
   }
 
@@ -593,7 +598,7 @@ export class Widget {
         this.applyHeight(data.height);
         break;
       case 'title':
-        if (data.text) this.titleEl.textContent = String(data.text).slice(0, 80);
+        if (data.text && this.titleEl) this.titleEl.textContent = String(data.text).slice(0, 80);
         break;
       case 'error':
         this.showError(data.message);
@@ -607,9 +612,17 @@ export class Widget {
   }
 
   applyHeight(height) {
-    const h = clampWidgetHeight(height, window.innerHeight);
+    const isDsui = this.kind === 'dsui';
+    const h = clampWidgetHeight(height, window.innerHeight, {
+      // dsui 去掉卡片外框后让高度自然延展，由页面滚动承接
+      min: isDsui ? 60 : 140,
+      max: isDsui ? 6000 : Math.max(220, Math.round(window.innerHeight * 0.72)),
+    });
     this.lastHeight = h;
     this.iframe.style.height = `${h}px`;
+    if (isDsui && this.el) {
+      this.el.dataset.overflow = Number(height) > h + 2 ? '1' : '0';
+    }
   }
 
   async sendMessageToChat(text) {
@@ -672,7 +685,6 @@ export class Widget {
     else delete this.statusEl.dataset.busy;
     if (text) this.statusEl.hidden = false;
   }
-
   showError(message) {
     if (!this.footEl) return;
     this.footEl.hidden = false;

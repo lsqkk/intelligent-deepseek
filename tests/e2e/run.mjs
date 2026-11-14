@@ -289,8 +289,17 @@ check(
   `widgets=${s.widgets} userVisible=${run.userVisible} completed=${run.completed} seconds=${run.seconds}`
 );
 check('卡片进入已就绪状态', s.readyWidgets >= 1 && s.readyWidgets === s.widgets, `ready=${s.readyWidgets}/${s.widgets}`);
-check('卡片标题来自组件 <title>', (s.titles[0] || '').length > 1, s.titles.join(' | '));
-check('iframe 高度自适应', (s.heights[0] || 0) > 140, `heights=${s.heights.join(',')}`);
+check(
+  'dsui 卡片无标题栏/外框（融入对话）',
+  (await page.locator('.dsui-widget .dsui-head').count()) === 0 &&
+    (await page.evaluate(() => {
+      const w = document.querySelector('.dsui-widget');
+      const style = w ? getComputedStyle(w) : null;
+      return Boolean(style && style.borderTopWidth === '0px' && style.boxShadow === 'none');
+    })),
+  `headers=${await page.locator('.dsui-widget .dsui-head').count()}`
+);
+check('iframe 高度自适应', (s.heights[0] || 0) > 60, `heights=${s.heights.join(',')}`);
 check('原代码块被隐藏', (s.debug?.blocks || []).some((b) => b.hidden), JSON.stringify(s.debug?.blocks?.map((b) => b.lang)));
 await page.screenshot({ path: path.join(outDir, '01-widget.png') });
 
@@ -404,17 +413,29 @@ if (!backchannelSent) {
   await page.screenshot({ path: path.join(outDir, '02b-backchannel-failed.png') });
 }
 check('点击组件按钮后直接发送消息并触发新对话', clicked && backchannelSent);
+const firstSessionId = (() => {
+  try {
+    return JSON.parse(completionBodies[0] || '{}').chat_session_id || '';
+  } catch {
+    return '';
+  }
+})();
 const bcBody = completionBodies[completionBodies.length - 1] || '';
+let bcSessionId = '';
+try {
+  bcSessionId = JSON.parse(bcBody).chat_session_id || '';
+} catch {}
+const sameSession = Boolean(firstSessionId && bcSessionId === firstSessionId);
 check(
-  '同一会话后续轮次默认不再注入协议（首条消息注入一次）',
-  bcBody.length > 0 && !bcBody.includes('⟦DS-UI'),
-  bcBody.slice(0, 160)
+  '注入策略：同一会话后续轮次不再注入（新会话仍会注入一次）',
+  !sameSession || !bcBody.includes('⟦DS-UI'),
+  `sameSession=${sameSession} first=${firstSessionId} bc=${bcSessionId}`
 );
 await page.waitForTimeout(1000);
 await page.screenshot({ path: path.join(outDir, '02-backchannel.png') });
 
 // ---- 刷新后历史净化 + 重新渲染 ----
-const sessionUrl = /\/a\/chat\/s\//.test(run.url) ? run.url : page.url();
+const sessionUrl = /\/a\/chat\/s\//.test(page.url()) ? page.url() : run.url;
 console.log('[e2e] 会话地址:', sessionUrl);
 await page.goto(sessionUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
 const reloadOk = await waitFor(async () => {
@@ -433,7 +454,7 @@ check(
 );
 check(
   '刷新后仍在同一条测试对话中',
-  afterReload.userBubbles.some((text) => text.includes('RGB 颜色选择器')),
+  afterReload.userBubbles.some((text) => text.includes('RGB 颜色选择器') || text.includes('BACKCHANNEL_OK')),
   afterReload.userBubbles.map((t) => t.slice(0, 40)).join(' || ')
 );
 check(

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mock DeepSeek</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #fff; color: #1f2329; }
+  body.dark { background: #16171a; color: #e7e9ee; }
+  #messages { max-width: 820px; margin: 24px auto 140px; padding: 0 16px; }
+  .ds-message { margin: 14px 0; }
+  .ds-markdown { line-height: 1.7; }
+  .md-code-block { border: 1px solid #e4e7ec; border-radius: 8px; overflow: hidden; margin: 12px 0; }
+  .md-code-block-banner { background: #f6f7f9; padding: 6px 10px; font-size: 12px; color: #666; }
+  body.dark .md-code-block { border-color: #2f3136; }
+  body.dark .md-code-block-banner { background: #232427; color: #aaa; }
+  .md-code-block pre { margin: 0; padding: 10px 12px; font-size: 12px; overflow: auto; max-height: 300px; }
+  #composer-bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px 16px; background: inherit; border-top: 1px solid #e4e7ec; display: flex; gap: 8px; align-items: flex-end; }
+  body.dark #composer-bar { border-color: #2f3136; }
+  #composer { flex: 1; height: 52px; resize: none; border-radius: 10px; border: 1px solid #e4e7ec; padding: 8px; font-size: 14px; font-family: inherit; color: inherit; background: #fff; }
+  body.dark #composer { background: #1c1d1f; border-color: #2f3136; }
+  #sendBtn { width: 36px; height: 36px; border-radius: 50%; background: #4d6bfe; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; font-size: 18px; margin-bottom: 8px; }
+  #sendBtn.ds-button--disabled { opacity: .5; }
+  .user-text { background: #f1f6ff; border-radius: 12px; padding: 10px 14px; max-width: 70%; margin-left: auto; }
+  body.dark .user-text { background: #1f2a4a; }
+</style>
+</head>
+<body class="zh_CN light">
+<div id="messages"></div>
+<div id="composer-bar">
+  <textarea id="composer" placeholder="给 DeepSeek 发送消息"></textarea>
+  <div role="button" id="sendBtn" class="ds-button ds-button--primary ds-button--filled ds-button--circle ds-button--m ds-button--icon-relative-m" tabindex="0">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8.3125 0.980206C8.66767 1.05312 8.97902 1.2042 9.2627 1.43235C9.48724 1.613 9.73029 1.85795 9.97949 2.10716L14.707 6.8347L13.293 8.24876L9 3.95579V15.0417H7V3.95579L2.70703 8.24876L1.29297 6.8347L6.02051 2.10716C6.26971 1.85795 6.51277 1.613 6.7373 1.43235C6.97662 1.23988 7.28445 1.04404 7.6875 0.980206C7.8973 0.947029 8.1031 0.955183 8.3125 0.980206Z" fill="currentColor"></path></svg>
+  </div>
+</div>
+
+<script>
+  window.__sent = [];
+
+  const sendBtn = document.getElementById('sendBtn');
+  sendBtn.addEventListener('click', () => {
+    const ta = document.getElementById('composer');
+    const text = ta.value;
+    if (!text.trim()) return;
+    window.__sent.push(text);
+    addUserMessage(text);
+    ta.value = '';
+  });
+
+  function addUserMessage(text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ds-message';
+    wrap.innerHTML = '<div class="fbb737a4"><div class="ds-collapsible-text"><div><span></span></div></div></div>';
+    wrap.querySelector('span').textContent = text;
+    document.getElementById('messages').appendChild(wrap);
+  }
+
+  function makeBlock(code, lang) {
+    const block = document.createElement('div');
+    block.className = 'md-code-block md-code-block-light';
+    block.innerHTML =
+      '<div class="md-code-block-banner-wrap"><div class="md-code-block-banner md-code-block-banner-lite">' +
+      '<div class="_121d384"><div class="d2a24f03"><span class="d813de27">' + lang + '</span></div>' +
+      '<div class="d2a24f03 _246a029"><div class="_x"><div role="button" class="ds-button ds-button--xs"><span class="code-info-button-text">复制</span></div></div></div>' +
+      '</div></div></div><pre></pre>';
+    block.querySelector('pre').textContent = code;
+    return block;
+  }
+
+  /** 添加一条助手消息；stream=true 时模拟逐段输出 */
+  window.addAssistant = (code, { lang = 'dsui', stream = false, chunk = 120 } = {}) => {
+    const msg = document.createElement('div');
+    msg.className = 'ds-message';
+    const md = document.createElement('div');
+    md.className = 'ds-markdown ds-assistant-message-main-content';
+    msg.appendChild(md);
+    document.getElementById('messages').appendChild(msg);
+    const block = makeBlock(stream ? '' : code, lang);
+    md.appendChild(block);
+
+    if (stream) {
+      let offset = 0;
+      const timer = setInterval(() => {
+        offset = Math.min(code.length, offset + chunk);
+        block.querySelector('pre').textContent = code.slice(0, offset);
+        if (offset >= code.length) clearInterval(timer);
+      }, 80);
+      return { msg, block, timer };
+    }
+    return { msg, block };
+  };
+
+  window.replaceAssistantBlock = (msg, code, lang = 'dsui') => {
+    const md = msg.querySelector('.ds-markdown');
+    const old = md.querySelector('.md-code-block');
+    const next = makeBlock(code, lang);
+    md.replaceChild(next, old);
+    return next;
+  };
+
+  window.toggleTheme = () => {
+    document.body.classList.toggle('dark');
+    document.body.classList.toggle('light');
+    return document.body.className;
+  };
+</script>
+</body>
+</html>

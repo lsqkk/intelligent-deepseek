@@ -1,0 +1,6 @@
+node_modules/
+.recon/
+.auth/
+.browser-profile/
+test-results/
+*.log

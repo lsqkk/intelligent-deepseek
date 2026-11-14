@@ -63,10 +63,6 @@ function registerMenu(ui) {
       showToast(next.autoRender ? '已开启自动渲染' : '已关闭自动渲染');
       window.dispatchEvent(new CustomEvent('dsui:settings-changed', { detail: next }));
     });
-    GM_registerMenuCommand('退出全屏 / 恢复对话输入框', () => {
-      getAllWidgets().forEach((widget) => widget.exitFullscreen());
-      showToast('已退出全屏，输入框恢复');
-    });
     GM_registerMenuCommand('临时停用脚本（恢复原始代码块）', () => {
       const next = updateSettings({ enabled: false });
       window.dispatchEvent(new CustomEvent('dsui:settings-changed', { detail: next }));
@@ -113,7 +109,6 @@ function installDebugApi(ui) {
         ready: w.ready,
         navigated: w.navigated,
         state: w.el?.dataset.state,
-        pending: w.pending,
         status: w.statusEl?.textContent,
         foot: w.footEl?.textContent,
       }));

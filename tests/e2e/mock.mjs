@@ -17,6 +17,7 @@ const script = fs.readFileSync(path.join(root, 'dist/intelligent-deepseek.user.j
 const settings = {
   enabled: true,
   injectPrompt: true,
+  injectEveryTurn: false,
   autoRender: true,
   renderPlainHtml: true,
   allowWidgetSend: true,
@@ -97,6 +98,10 @@ await waitFor(async () => (await page.locator('.dsui-widget[data-state="ready"]'
 check('卡片就绪状态', (await page.locator('.dsui-widget[data-state="ready"]').count()) === 1);
 check('卡片标题取自 <title>', (await page.locator('.dsui-title').first().innerText()) === 'Mock 计算器');
 check('原代码块被隐藏', (await page.locator('.md-code-block[data-dsui-hidden]').count()) === 1);
+check(
+  'dsui 卡片不显示代码/复制/下载工具栏',
+  (await page.locator('.dsui-widget .dsui-actions').count()) === 0
+);
 await waitFor(
   async () =>
     (await page.frameLocator('.dsui-widget iframe').first().locator('html').getAttribute('data-marker')) ===
@@ -134,31 +139,21 @@ check(
   JSON.stringify(aliveAfterTheme)
 );
 
-// 4) 工具栏
-await page.locator('.dsui-widget .dsui-btn[data-act="code"]').first().click();
-await page.waitForTimeout(200);
-check('代码面板可展开', (await page.locator('.dsui-widget .dsui-code').first().innerText()).includes('Mock 计算器'));
-await page.locator('.dsui-widget .dsui-btn[data-act="code"]').first().click();
-await page.locator('.dsui-widget .dsui-btn[data-act="fullscreen"]').first().click();
-await page.waitForTimeout(250);
-check('全屏模式可进入', await page.evaluate(() => document.querySelector('.dsui-widget').classList.contains('dsui-fullscreen')));
-await page.keyboard.press('Escape');
-await page.waitForTimeout(200);
-check('Esc 退出全屏', await page.evaluate(() => !document.querySelector('.dsui-widget').classList.contains('dsui-fullscreen')));
-// iframe 内按 Esc 也要能退出
-await page.locator('.dsui-widget .dsui-btn[data-act="fullscreen"]').first().click();
-await page.waitForTimeout(300);
-await frame.locator('body').click();
-await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
+// 4) 工具栏（只应出现在普通 html 兜底卡片上）
+await page.evaluate((html) => window.addAssistant(html, { lang: 'html' }), COMPONENT);
+await page.waitForTimeout(1500);
+check('普通 html 完整文档兜底渲染', (await page.locator('.dsui-widget').count()) === 2);
+const htmlWidget = page.locator('.dsui-widget').nth(1);
 check(
-  'iframe 内按 Esc 也能退出全屏',
-  await page.evaluate(() => !document.querySelector('.dsui-widget').classList.contains('dsui-fullscreen'))
+  'html 卡片保留代码/复制/下载按钮',
+  (await htmlWidget.locator('.dsui-btn[data-act="code"]').count()) === 1 &&
+    (await htmlWidget.locator('.dsui-btn[data-act="copy"]').count()) === 1 &&
+    (await htmlWidget.locator('.dsui-btn[data-act="download"]').count()) === 1
 );
-check(
-  '全屏按钮退出后文案恢复',
-  (await page.locator('.dsui-widget .dsui-btn[data-act="fullscreen"]').first().innerText()) === '全屏'
-);
+await htmlWidget.locator('.dsui-btn[data-act="code"]').click();
+await page.waitForTimeout(200);
+check('html 卡片代码面板可展开', (await htmlWidget.locator('.dsui-code').innerText()).includes('Mock 计算器'));
+await htmlWidget.locator('.dsui-btn[data-act="code"]').click();
 
 // 5) React 式节点替换：应复用卡片而不是重复渲染
 const replaced = await page.evaluate((html) => {
@@ -167,14 +162,9 @@ const replaced = await page.evaluate((html) => {
   return Boolean(next);
 }, COMPONENT.replace('Mock 计算器', 'Mock 计算器 2').replace('value="2"', 'value="3"'));
 await page.waitForTimeout(1200);
-check('代码块节点被替换后仍只有 1 张卡片', replaced && (await page.locator('.dsui-widget').count()) === 1, `count=${await page.locator('.dsui-widget').count()}`);
+check('代码块节点被替换后不重复渲染卡片', replaced && (await page.locator('.dsui-widget').count()) === 2, `count=${await page.locator('.dsui-widget').count()}`);
 
-// 6) 普通 html 完整文档兜底
-await page.evaluate((html) => window.addAssistant(html, { lang: 'html' }), COMPONENT);
-await page.waitForTimeout(1500);
-check('普通 html 完整文档兜底渲染', (await page.locator('.dsui-widget').count()) === 2);
-
-// 7) 流式渐进渲染：流结束前就应出现卡片
+// 6) 流式渐进渲染：流结束前就应出现卡片
 await page.evaluate((html) => window.addAssistant(html, { lang: 'dsui', stream: true, chunk: 90 }), COMPONENT);
 const appearedDuringStream = await waitFor(async () => (await page.locator('.dsui-widget').count()) === 3, 5000);
 check('流式输出过程中卡片提前出现（渐进渲染）', appearedDuringStream);
@@ -191,17 +181,13 @@ const streamStates = await page.evaluate(() =>
 );
 check('流式结束后卡片就绪', (await page.locator('.dsui-widget[data-state="ready"]').count()) === 3, JSON.stringify(streamStates));
 
-// 8) 回传消息（需要父端确认）
+// 8) 回传消息：点击组件按钮直接发送
 await page.evaluate((html) => window.__dsui.mountTestWidget(html, { host: (() => { const d = document.createElement('div'); d.id = 'mock-bc-host'; document.body.appendChild(d); return d; })() }), BACKCHANNEL);
 await waitFor(async () => (await page.locator('#mock-bc-host .dsui-widget').count()) === 1, 5000);
 await page.frameLocator('#mock-bc-host iframe').locator('#send').click();
-await waitFor(async () => (await page.locator('#mock-bc-host .dsui-pending:not([hidden])').count()) === 1, 5000);
-const pendingPreview = await page.locator('#mock-bc-host .dsui-pending-text').innerText();
-check('组件回传进入父端确认栏', pendingPreview.includes('MOCK_BACKCHANNEL'), pendingPreview);
-await page.locator('#mock-bc-host [data-act="confirm-send"]').click();
-await page.waitForTimeout(1000);
+await page.waitForTimeout(1200);
 const sent = await page.evaluate(() => window.__sent);
-check('父端确认后组件 sendMessage 才发送', sent.includes('MOCK_BACKCHANNEL'), JSON.stringify(sent));
+check('点击组件按钮后直接发送消息', sent.includes('MOCK_BACKCHANNEL'), JSON.stringify(sent));
 
 // 9) 安全：无用户手势的自动发送应被阻止
 await page.evaluate((html) => window.__dsui.mountTestWidget(html, { host: (() => { const d = document.createElement('div'); d.id = 'mock-auto-host'; document.body.appendChild(d); return d; })() }), AUTO_SEND);
@@ -224,8 +210,7 @@ try {
   }
   await page.waitForTimeout(700);
   const noSeqSent = await page.evaluate(() => window.__sent);
-  const noSeqPending = await page.locator('#mock-auto-host .dsui-pending:not([hidden])').count();
-  check('不带 seq 的直接 postMessage 被拒绝', Boolean(token) && !noSeqSent.includes('NO_SEQ') && noSeqPending === 0, `token=${Boolean(token)} pending=${noSeqPending}`);
+  check('不带 seq 的直接 postMessage 被拒绝', Boolean(token) && !noSeqSent.includes('NO_SEQ'), `token=${Boolean(token)}`);
 } catch (e) {
   check('不带 seq 的直接 postMessage 被拒绝', false, e.message.slice(0, 120));
 }

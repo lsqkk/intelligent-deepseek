@@ -35,15 +35,16 @@ export function setComposerText(text) {
 }
 
 const SEND_ARROW_PATH = 'M8.3125 0.980206';
-const STOP_PATH = 'M5.5498 9.75V5';
+const STOP_CIRCLE_PATH = 'M2 4.88';
 
 export function isStreaming() {
   return [...document.querySelectorAll('div[role="button"]')].some((el) => {
-    const path = el.querySelector('svg path')?.getAttribute('d');
-    if (!path?.startsWith(STOP_PATH)) return false;
-    // 生成结束后这个按钮会残留在离屏的旧消息里，必须只认视口内可见的
+    const cls = String(el.className || '');
+    const path = el.querySelector('svg path')?.getAttribute('d') || '';
+    if (!cls.includes('ds-button--circle') || !cls.includes('ds-button--primary')) return false;
+    if (!path.startsWith(STOP_CIRCLE_PATH)) return false;
     const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+    return rect.width > 0 && rect.height > 0;
   });
 }
 

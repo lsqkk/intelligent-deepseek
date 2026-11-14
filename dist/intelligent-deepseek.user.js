@@ -2,9 +2,9 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.0.0
-// @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: per-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
-// @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：每轮自动注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
+// @version      1.1.1
+// @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
+// @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
 // @license      MIT
 // @match        https://chat.deepseek.com/*
@@ -21,6 +21,7 @@
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     injectPrompt: true,
+    injectEveryTurn: false,
     autoRender: true,
     renderPlainHtml: true,
     allowWidgetSend: true,
@@ -85,6 +86,7 @@
           out[key] = value[key];
         }
       }
+      if (value.injectEveryTurn === void 0) out.injectPrompt = true;
     }
     return out;
   }
@@ -93,17 +95,21 @@
   var PROMPT_START = "⟦DS-UI v1⟧";
   var PROMPT_END = "⟦/DS-UI⟧";
   var ZH_PROTOCOL = `【强制格式】当你生成可交互界面组件时，代码块语言必须写成 dsui，禁止写成 html（写成 html 客户端只显示源码、无法交互）。
-A. 当回答涉及数据可视化、计算/换算、规划、对比、表单、模拟、教学演示、小游戏等，用界面能明显提升体验时，先给一句简短说明，然后用 \`\`\`dsui 代码块输出一个完整、自包含的 HTML 文档（内联 CSS/JS，禁止外链/CDN/网络请求，图片只用 SVG、data URI 或 emoji；不要使用 localStorage/sessionStorage，状态放内存）。简单问答不要输出界面。
+A. 当回答涉及数据可视化、计算/换算、规划、对比、表单、模拟、教学演示、小游戏等，用界面能明显提升体验时，先给一句简短说明，然后用 \`\`\`dsui 代码块输出完整、自包含的 HTML（内联 CSS/JS，禁止外链/CDN/网络请求，图片只用 SVG、data URI 或 emoji；不要使用 localStorage/sessionStorage，状态放内存）。简单问答不要输出界面。
 B. 组件必须真实可交互，初次渲染就展示有用的结果，不要留空等待；避免 100vh 与固定超大高度，高度自适应。
-C. 在 :root 定义 --bg、--fg、--muted、--card、--border、--accent 主题变量，深色适配用 :root[data-ds-theme="dark"] 覆盖这些变量（客户端会在 <html> 上设置 data-ds-theme，可另加 @media (prefers-color-scheme: dark) 兜底）。
-D. 需要用户继续对话时，调用 window.dsui.sendMessage('要发送给模型的文本')。
-E. 一次回答可以输出一个或多个 dsui 块，每个块都必须是完整可运行的 HTML；块内只放代码，块结束后不要再写解释；语言跟随用户。用户只是要"看代码"时用普通代码块，不要用 dsui。`;
+C. 不要把很长的页面塞进一个 dsui 块：内容多时拆分成 2-5 个 dsui，每个只专注一个交互演示（例如图表一个、表单一个、说明/小游戏一个）。
+D. 视觉要融入对话：组件根节点/body 默认不要设置背景色（保持透明），不要把整体内容再套一层卡片、外框、圆角大背景或阴影；只有按钮、输入框、图表等内部元素可以有必要的样式。
+E. 在 :root 定义 --fg、--muted、--border、--accent 主题变量，深色适配用 :root[data-ds-theme="dark"] 覆盖（客户端会在 <html> 上设置 data-ds-theme，可另加 @media (prefers-color-scheme: dark) 兜底）。
+F. 需要用户继续对话时，调用 window.dsui.sendMessage('要发送给模型的文本')。
+G. 一次回答可以输出一个或多个 dsui 块，每个块都必须是完整可运行的 HTML；块内只放代码，块结束后不要再写解释；语言跟随用户。用户只是要"看代码"时用普通代码块，不要用 dsui。`;
   var EN_PROTOCOL = `The client supports "intelligent UI": you can emit runnable interactive components that the client renders automatically.
 A. When an interactive UI clearly improves the answer (data visualization, calculator/converter, planner, comparison, form, simulation, tutorial, mini-game), append a \`\`\`dsui fenced block containing a complete self-contained HTML document (inline CSS/JS only; no external links, CDNs or network requests; images only as SVG, data URIs or emoji; no localStorage/sessionStorage — keep state in memory). Do not emit UI for simple Q&A.
 B. The component must be genuinely interactive and show useful results on first render; avoid 100vh and fixed oversized heights.
-C. Define theme variables --bg, --fg, --muted, --card, --border, --accent on :root and override them for :root[data-ds-theme="dark"] (the client sets data-ds-theme on <html>; a @media (prefers-color-scheme: dark) fallback is optional).
-D. To continue the conversation from the UI, call window.dsui.sendMessage('text').
-E. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Use normal code blocks when the user only wants to read code.`;
+C. Do not cram a long page into one dsui block: split into 2-5 dsui blocks, each focused on a single interactive demo (e.g. one chart, one form, one small game).
+D. Blend into the conversation: do NOT set a background color on the root/body by default (keep it transparent), and do NOT wrap everything in another card/frame/rounded panel/shadow. Only inner controls, charts, etc. may have necessary styling.
+E. Define theme variables --fg, --muted, --border, --accent on :root and override them for :root[data-ds-theme="dark"] (the client sets data-ds-theme on <html>; a @media (prefers-color-scheme: dark) fallback is optional).
+F. To continue the conversation from the UI, call window.dsui.sendMessage('text').
+G. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Use normal code blocks when the user only wants to read code.`;
   function getProtocol(settings) {
     const base = settings?.protocolLanguage === "en" ? EN_PROTOCOL : ZH_PROTOCOL;
     const custom = String(settings?.customProtocol || "").trim();
@@ -189,7 +195,37 @@ ${PROMPT_END}`;
   // src/inject.js
   var COMPLETION_URLS = ["/api/v0/chat/completion", "/api/v0/chat/edit_message"];
   var HISTORY_URLS = ["/api/v0/chat/history_messages", "/api/v0/share/content"];
+  var INJECTED_KEY = "__dsui_injected_sessions_v1";
+  var MAX_TRACKED_SESSIONS = 100;
   var installed = false;
+  var injectedSessions = loadInjectedSessions();
+  function loadInjectedSessions() {
+    try {
+      const raw = localStorage.getItem(INJECTED_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  function markSessionInjected(sessionId) {
+    if (!sessionId) return;
+    injectedSessions[sessionId] = Date.now();
+    const keys = Object.keys(injectedSessions);
+    if (keys.length > MAX_TRACKED_SESSIONS) {
+      keys.sort((a, b) => Number(injectedSessions[a]) - Number(injectedSessions[b])).slice(0, keys.length - MAX_TRACKED_SESSIONS).forEach((key) => delete injectedSessions[key]);
+    }
+    try {
+      localStorage.setItem(INJECTED_KEY, JSON.stringify(injectedSessions));
+    } catch {
+    }
+  }
+  function shouldInjectPrompt(settings, sessionId, injected = injectedSessions) {
+    if (!settings?.enabled || !settings.injectPrompt) return false;
+    if (settings.injectEveryTurn) return true;
+    if (!sessionId) return true;
+    return !injected[sessionId];
+  }
   function installInterceptors(getSettings2) {
     if (installed) return;
     installed = true;
@@ -366,9 +402,12 @@ ${PROMPT_END}`;
       return body;
     }
     if (!parsed || typeof parsed !== "object" || typeof parsed.prompt !== "string") return body;
+    const sessionId = typeof parsed.chat_session_id === "string" ? parsed.chat_session_id : "";
+    if (!shouldInjectPrompt(settings, sessionId)) return body;
     const nextPrompt = applyInjection(parsed.prompt, settings);
     if (nextPrompt === parsed.prompt) return body;
     parsed.prompt = nextPrompt;
+    markSessionInjected(sessionId);
     try {
       const pageWindow = getPageWindow();
       pageWindow.__dsuiInjectedCount = (pageWindow.__dsuiInjectedCount || 0) + 1;
@@ -449,6 +488,7 @@ html.dark .dsui-widget {
   font-size: 11.5px;
   color: var(--dsui-muted);
   white-space: nowrap;
+  margin-left: auto;
 }
 .dsui-status[data-busy="1"]::after {
   content: "";
@@ -462,7 +502,7 @@ html.dark .dsui-widget {
 }
 @keyframes dsui-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 .dsui-actions {
-  margin-left: auto;
+  margin-left: 6px;
   display: flex;
   gap: 2px;
   align-items: center;
@@ -529,7 +569,10 @@ html.dark .dsui-widget {
   line-height: 1.55;
   white-space: pre;
   tab-size: 2;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.dsui-code::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dsui-code code { font: inherit; color: inherit; }
 .dsui-foot {
   padding: 7px 12px;
@@ -541,83 +584,51 @@ html.dark .dsui-widget {
   word-break: break-word;
 }
 body.dark .dsui-foot, html.dark .dsui-foot { color: #fb923c; }
-.dsui-pending {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--dsui-border);
-  background: var(--dsui-soft);
-  font-size: 12px;
-  color: var(--dsui-fg);
-}
-.dsui-pending[hidden] { display: none; }
-.dsui-pending-label { color: var(--dsui-muted); white-space: nowrap; }
-.dsui-pending-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsui-fg);
-}
-.dsui-pending-actions { display: flex; gap: 4px; flex: 0 0 auto; }
-.dsui-btn-primary { background: var(--dsui-accent); color: #fff; }
-.dsui-btn-primary:hover { background: var(--dsui-accent); color: #fff; opacity: .9; }
 
-.dsui-widget.dsui-fullscreen {
-  position: fixed;
-  inset: 22px;
-  z-index: 2147483001;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
-}
-.dsui-widget.dsui-fullscreen::before {
-  content: "";
-  position: fixed;
-  inset: -22px;
-  background: rgba(10, 12, 16, .45);
-  z-index: -1;
-  backdrop-filter: blur(2px);
-}
-.dsui-widget.dsui-fullscreen .dsui-body { flex: 1; min-height: 0; }
-.dsui-widget.dsui-fullscreen .dsui-frame { height: 100% !important; }
-.dsui-widget.dsui-fullscreen .dsui-code { max-height: none; height: 100%; box-sizing: border-box; }
-
-/* 设置入口悬浮按钮 */
+/* 设置入口按钮：默认与输入框的附件按钮并排 */
 #dsui-fab {
+  position: static;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #8a8f98;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+#dsui-fab:hover { background: rgba(127, 127, 127, .14); color: #4d6bfe; }
+body.dark #dsui-fab, html.dark #dsui-fab { color: #9aa0aa; }
+body.dark #dsui-fab:hover, html.dark #dsui-fab:hover { color: #8fa2ff; }
+#dsui-fab[hidden] { display: none !important; }
+/* 找不到输入框时的兜底悬浮样式（例如分享页/登录页） */
+#dsui-fab.dsui-fab-floating {
   position: fixed;
   right: 18px;
   bottom: 96px;
   z-index: 2147483000;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
   border: 1px solid rgba(77, 107, 254, .28);
   background: rgba(255, 255, 255, .86);
-  color: #4d6bfe;
-  font-size: 16px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   box-shadow: 0 2px 10px rgba(16, 24, 40, .12);
   backdrop-filter: blur(8px);
-  transition: transform .15s ease, box-shadow .15s ease;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-#dsui-fab:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(16, 24, 40, .18); }
-body.dark #dsui-fab, html.dark #dsui-fab {
+body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
   background: rgba(28, 29, 31, .88);
   border-color: rgba(107, 133, 255, .36);
-  color: #8fa2ff;
 }
 @media (max-width: 640px) {
-  #dsui-fab { right: 12px; bottom: 80px; width: 32px; height: 32px; font-size: 14px; }
+  #dsui-fab.dsui-fab-floating { right: 12px; bottom: 80px; width: 30px; height: 30px; font-size: 13px; }
 }
 
 /* toast */
@@ -943,7 +954,6 @@ body.dark #dsui-fab, html.dark #dsui-fab {
     },true);
     window.addEventListener('beforeunload',function(){ post({type:'navigating'}); });
     window.addEventListener('pagehide',function(){ post({type:'navigating'}); });
-    document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ post({type:'escape'}); } },true);
   }catch(e){}
   if(window.ResizeObserver){ try{ new ResizeObserver(measure).observe(document.documentElement); }catch(e){} }
   window.addEventListener('load',function(){ setTimeout(measure,30); observeBody(); });
@@ -972,7 +982,7 @@ body.dark #dsui-fab, html.dark #dsui-fab {
     const source = String(rawHtml ?? "");
     let doc = /<html[\s>]/i.test(source) || /<!doctype/i.test(source) ? source : `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${source}</body></html>`;
     if (!/<!doctype/i.test(doc)) doc = `<!DOCTYPE html>${doc}`;
-    const headBits = `${CSP_META}<style>html,body{margin:0;padding:0;overflow-x:hidden}html{color-scheme:${theme}}</style>`;
+    const headBits = `${CSP_META}<style>html,body{margin:0;padding:0;overflow-x:hidden;background:transparent;scrollbar-width:none;-ms-overflow-style:none}html{color-scheme:${theme}}*{scrollbar-width:none;-ms-overflow-style:none}*::-webkit-scrollbar{width:0;height:0;display:none}</style>`;
     const bridge = `<script>${BRIDGE_CODE.replace("__DS_UI_TOKEN__", JSON.stringify(token)).replace(
       "__DS_UI_SEQ__",
       String(docSeq)
@@ -1104,8 +1114,9 @@ body.dark #dsui-fab, html.dark #dsui-fab {
     }
   }
   var Widget = class {
-    constructor(block, { getSettings: getSettings2, onToast }) {
+    constructor(block, { getSettings: getSettings2, onToast, kind = "dsui" } = {}) {
       this.block = block;
+      this.kind = kind === "html" ? "html" : "dsui";
       this.getSettings = getSettings2;
       this.onToast = onToast;
       this.id = `dsui-${++nextWidgetId}`;
@@ -1139,16 +1150,17 @@ body.dark #dsui-fab, html.dark #dsui-fab {
       root.className = "dsui-widget";
       root.dataset.dsuiId = this.id;
       root.dataset.state = "streaming";
+      const actions = this.kind === "html" ? `<span class="dsui-actions">
+             <button type="button" class="dsui-btn" data-act="code" title="切换查看源码">代码</button>
+             <button type="button" class="dsui-btn" data-act="copy" title="复制源码">复制</button>
+             <button type="button" class="dsui-btn" data-act="download" title="下载 HTML">下载</button>
+           </span>` : "";
       root.innerHTML = `
       <div class="dsui-head">
         <span class="dsui-mark" aria-hidden="true">✦</span>
         <span class="dsui-title">交互界面</span>
         <span class="dsui-status" data-busy="1">生成中…</span>
-        <span class="dsui-actions">
-          <button type="button" class="dsui-btn" data-act="code" title="切换查看源码">代码</button>
-          <button type="button" class="dsui-btn" data-act="copy" title="复制源码">复制</button>
-          <button type="button" class="dsui-btn" data-act="fullscreen" title="全屏">全屏</button>
-        </span>
+        ${actions}
       </div>
       <div class="dsui-body">
         <div class="dsui-placeholder"><span class="dsui-spinner"></span><span>正在构建界面…</span></div>
@@ -1156,14 +1168,6 @@ body.dark #dsui-fab, html.dark #dsui-fab {
         <pre class="dsui-code" hidden><code></code></pre>
       </div>
       <div class="dsui-foot" hidden></div>
-      <div class="dsui-pending" hidden>
-        <span class="dsui-pending-label">组件请求发送消息：</span>
-        <span class="dsui-pending-text"></span>
-        <span class="dsui-pending-actions">
-          <button type="button" class="dsui-btn dsui-btn-primary" data-act="confirm-send">发送</button>
-          <button type="button" class="dsui-btn" data-act="cancel-send">取消</button>
-        </span>
-      </div>
     `;
       this.el = root;
       this.iframe = root.querySelector(".dsui-frame");
@@ -1173,9 +1177,6 @@ body.dark #dsui-fab, html.dark #dsui-fab {
       this.codePanel = root.querySelector(".dsui-code");
       this.codeEl = root.querySelector(".dsui-code code");
       this.footEl = root.querySelector(".dsui-foot");
-      this.pendingEl = root.querySelector(".dsui-pending");
-      this.pendingTextEl = root.querySelector(".dsui-pending-text");
-      this.pending = null;
       this.sendTimes = [];
       this.iframe.style.height = "260px";
       root.addEventListener("click", (event) => this.onClick(event));
@@ -1199,28 +1200,9 @@ body.dark #dsui-fab, html.dark #dsui-fab {
       const act = button.dataset.act;
       if (act === "code") this.toggleCode(button);
       else if (act === "copy") this.copyCode(button);
-      else if (act === "fullscreen") this.toggleFullscreen(button);
-      else if (act === "confirm-send") this.confirmPendingSend();
-      else if (act === "cancel-send") this.cancelPendingSend();
+      else if (act === "download") this.downloadCode(button);
     }
-    confirmPendingSend() {
-      const text = this.pending;
-      this.cancelPendingSend();
-      if (!text) return;
-      this.sendTimes = this.sendTimes.filter((t) => Date.now() - t < 6e4);
-      if (this.sendTimes.length >= 5) {
-        this.onToast?.("该组件发送过于频繁，请稍后再试");
-        return;
-      }
-      this.sendTimes.push(Date.now());
-      this.sendMessageToChat(text);
-    }
-    cancelPendingSend() {
-      this.pending = null;
-      clearTimeout(this.pendingTimer);
-      if (this.pendingEl) this.pendingEl.hidden = true;
-    }
-    requestPendingSend(text) {
+    handleWidgetSend(text) {
       const content = String(text ?? "").trim();
       if (!content) return;
       const settings = this.getSettings() || {};
@@ -1228,13 +1210,13 @@ body.dark #dsui-fab, html.dark #dsui-fab {
         this.onToast?.("界面回传已关闭（可在设置中开启）");
         return;
       }
-      this.pending = content;
-      if (this.pendingTextEl) {
-        this.pendingTextEl.textContent = content.length > 120 ? content.slice(0, 120) + "…" : content;
+      this.sendTimes = this.sendTimes.filter((t) => Date.now() - t < 6e4);
+      if (this.sendTimes.length >= 5) {
+        this.onToast?.("该组件发送过于频繁，请稍后再试");
+        return;
       }
-      if (this.pendingEl) this.pendingEl.hidden = false;
-      clearTimeout(this.pendingTimer);
-      this.pendingTimer = setTimeout(() => this.cancelPendingSend(), 3e4);
+      this.sendTimes.push(Date.now());
+      this.sendMessageToChat(content);
     }
     toggleCode(button) {
       this.showCode = !this.showCode;
@@ -1266,37 +1248,25 @@ body.dark #dsui-fab, html.dark #dsui-fab {
         button.textContent = "复制";
       }, 1400);
     }
-    toggleFullscreen(button) {
-      const on = this.el.classList.toggle("dsui-fullscreen");
-      button.classList.toggle("is-active", on);
-      button.textContent = on ? "退出" : "全屏";
-      button.title = on ? "退出全屏（Esc）" : "全屏";
-      if (on) {
-        this.iframe.style.height = "";
-        this.fullscreenKeyHandler = (event) => {
-          if (event.key === "Escape") {
-            this.exitFullscreen();
-          }
-        };
-        document.addEventListener("keydown", this.fullscreenKeyHandler, true);
-      } else {
-        this.exitFullscreen();
-      }
-    }
-    exitFullscreen() {
-      if (!this.el?.classList.contains("dsui-fullscreen")) return;
-      this.el.classList.remove("dsui-fullscreen");
-      this.iframe.style.height = "";
-      this.applyHeight(this.lastHeight || 320);
-      const button = this.el.querySelector('[data-act="fullscreen"]');
-      if (button) {
-        button.classList.remove("is-active");
-        button.textContent = "全屏";
-        button.title = "全屏";
-      }
-      if (this.fullscreenKeyHandler) {
-        document.removeEventListener("keydown", this.fullscreenKeyHandler, true);
-        this.fullscreenKeyHandler = null;
+    downloadCode(button) {
+      try {
+        const title = (this.titleEl?.textContent || "component").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 60);
+        const blob = new Blob([this.code], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${title || "component"}.html`;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2e3);
+        button.textContent = "已下载";
+        setTimeout(() => {
+          button.textContent = "下载";
+        }, 1400);
+      } catch {
+        this.onToast?.("下载失败，请切换「代码」手动复制");
       }
     }
     /** 代码内容更新（流式时会被反复调用） */
@@ -1403,9 +1373,6 @@ body.dark #dsui-fab, html.dark #dsui-fab {
         case "navigating":
           this.markNavigated();
           break;
-        case "escape":
-          this.exitFullscreen();
-          break;
         case "height":
           this.applyHeight(data.height);
           break;
@@ -1416,17 +1383,15 @@ body.dark #dsui-fab, html.dark #dsui-fab {
           this.showError(data.message);
           break;
         case "sendMessage":
-          this.requestPendingSend(data.text);
+          this.handleWidgetSend(data.text);
           break;
         default:
           break;
       }
     }
     applyHeight(height) {
-      const settings = this.getSettings() || {};
       const h = clampWidgetHeight(height, window.innerHeight);
       this.lastHeight = h;
-      if (this.el?.classList.contains("dsui-fullscreen")) return;
       this.iframe.style.height = `${h}px`;
     }
     async sendMessageToChat(text) {
@@ -1503,10 +1468,6 @@ body.dark #dsui-fab, html.dark #dsui-fab {
       clearTimeout(this.readyTimer);
       clearTimeout(this.streamRenderTimer);
       clearTimeout(this.navTimeout);
-      clearTimeout(this.pendingTimer);
-      if (this.fullscreenKeyHandler) {
-        document.removeEventListener("keydown", this.fullscreenKeyHandler, true);
-      }
       WIDGETS_BY_TOKEN.delete(this.token);
       ALL_WIDGETS.delete(this);
       this.el?.remove();
@@ -1566,7 +1527,9 @@ body.dark #dsui-fab, html.dark #dsui-fab {
             widget = adoptAdjacentWidget(block);
           }
           if (!widget) {
-            widget = new Widget(block, { getSettings: getSettings2, onToast });
+            const lang = readLang(block);
+            const kind = lang === "html" || lang === "htm" || lang === "svg" ? "html" : "dsui";
+            widget = new Widget(block, { getSettings: getSettings2, onToast, kind });
             widgets.set(block, widget);
             widget.mount();
           } else if (widget.block !== block) {
@@ -1734,18 +1697,20 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.0.0";
+  var VERSION = false ? "dev" : "1.1.1";
   var TOGGLES = [
     { key: "enabled", label: "启用 Intelligent UI", desc: "总开关：关闭后不注入、不渲染" },
-    { key: "injectPrompt", label: "每轮自动注入界面协议", desc: "在发送请求里追加 dsui 协议，界面不可见" },
+    { key: "injectPrompt", label: "自动注入界面协议", desc: "新会话首条消息注入一次（推荐）" },
+    { key: "injectEveryTurn", label: "每轮都注入", desc: "默认关闭；开启后每轮携带协议，更耗 token" },
     { key: "autoRender", label: "自动渲染 dsui 代码块", desc: "流式生成时实时刷新为可交互 iframe" },
     { key: "renderPlainHtml", label: "同时渲染普通 html 完整文档", desc: "模型没按协议输出时的兜底，可能误伤代码展示" },
-    { key: "allowWidgetSend", label: "允许组件回传消息", desc: "组件调用 dsui.sendMessage 时自动发一条对话" },
-    { key: "showFab", label: "显示悬浮设置按钮", desc: "关闭后可用油猴菜单打开设置" }
+    { key: "allowWidgetSend", label: "允许组件回传消息", desc: "组件调用 dsui.sendMessage 时直接发一条对话" },
+    { key: "showFab", label: "显示设置按钮", desc: "默认在输入框附件按钮左侧，关闭后可用油猴菜单打开" }
   ];
   function installSettingsUI({ getSettings: getSettings2 }) {
     let panelHost = null;
     let fab = null;
+    let fabPlacementTimer = null;
     const openPanel = () => {
       if (panelHost?.isConnected) {
         closePanel();
@@ -1866,11 +1831,32 @@ select:focus, textarea:focus { border-color: var(--accent); }
           openPanel();
         });
         document.body.appendChild(fab);
+        placeFab();
+        setTimeout(placeFab, 600);
+        setTimeout(placeFab, 1500);
+        if (!fabPlacementTimer) fabPlacementTimer = setInterval(placeFab, 1200);
       } else if (!shouldShow && fab) {
+        clearInterval(fabPlacementTimer);
+        fabPlacementTimer = null;
         fab.remove();
         fab = null;
         closePanel();
       }
+    };
+    const placeFab = () => {
+      if (!fab) return;
+      const fileInput = document.querySelector('input[type="file"]');
+      const uploadRow = fileInput?.parentElement;
+      if (uploadRow && uploadRow.querySelector('[role="button"]')) {
+        if (fab.parentElement !== uploadRow) uploadRow.insertBefore(fab, uploadRow.firstElementChild);
+        fab.classList.remove("dsui-fab-floating");
+        fab.title = "Intelligent UI 设置（注入协议 / 渲染 / 回传确认）";
+        fab.hidden = false;
+        return;
+      }
+      if (fab.parentElement !== document.body) document.body.appendChild(fab);
+      fab.classList.add("dsui-fab-floating");
+      fab.hidden = false;
     };
     syncFab();
     return { openPanel, closePanel, syncFab };
@@ -1903,7 +1889,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.0.0", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.1.1", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -1921,10 +1907,6 @@ select:focus, textarea:focus { border-color: var(--accent); }
         showToast(next.autoRender ? "已开启自动渲染" : "已关闭自动渲染");
         window.dispatchEvent(new CustomEvent("dsui:settings-changed", { detail: next }));
       });
-      GM_registerMenuCommand("退出全屏 / 恢复对话输入框", () => {
-        getAllWidgets().forEach((widget) => widget.exitFullscreen());
-        showToast("已退出全屏，输入框恢复");
-      });
       GM_registerMenuCommand("临时停用脚本（恢复原始代码块）", () => {
         const next = updateSettings({ enabled: false });
         window.dispatchEvent(new CustomEvent("dsui:settings-changed", { detail: next }));
@@ -1936,7 +1918,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.0.0",
+      version: "1.1.1",
       getSettings,
       saveSettings,
       resetSettings: () => {
@@ -1950,7 +1932,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.0.0",
+          version: "1.1.1",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),
@@ -1970,7 +1952,6 @@ select:focus, textarea:focus { border-color: var(--accent); }
           ready: w.ready,
           navigated: w.navigated,
           state: w.el?.dataset.state,
-          pending: w.pending,
           status: w.statusEl?.textContent,
           foot: w.footEl?.textContent
         }));

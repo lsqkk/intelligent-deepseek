@@ -112,7 +112,6 @@ const BRIDGE_CODE = String.raw`(function(){
     },true);
     window.addEventListener('beforeunload',function(){ post({type:'navigating'}); });
     window.addEventListener('pagehide',function(){ post({type:'navigating'}); });
-    document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ post({type:'escape'}); } },true);
   }catch(e){}
   if(window.ResizeObserver){ try{ new ResizeObserver(measure).observe(document.documentElement); }catch(e){} }
   window.addEventListener('load',function(){ setTimeout(measure,30); observeBody(); });
@@ -148,7 +147,7 @@ export function buildWidgetDoc(rawHtml, { token, theme = 'light', docSeq = 0 } =
 
   if (!/<!doctype/i.test(doc)) doc = `<!DOCTYPE html>${doc}`;
 
-  const headBits = `${CSP_META}<style>html,body{margin:0;padding:0;overflow-x:hidden}html{color-scheme:${theme}}</style>`;
+  const headBits = `${CSP_META}<style>html,body{margin:0;padding:0;overflow-x:hidden;background:transparent;scrollbar-width:none;-ms-overflow-style:none}html{color-scheme:${theme}}*{scrollbar-width:none;-ms-overflow-style:none}*::-webkit-scrollbar{width:0;height:0;display:none}</style>`;
   const bridge = `<script>${BRIDGE_CODE.replace('__DS_UI_TOKEN__', JSON.stringify(token)).replace(
     '__DS_UI_SEQ__',
     String(docSeq)
@@ -302,8 +301,10 @@ function randomToken() {
   }
 }
 
-export class Widget {  constructor(block, { getSettings, onToast }) {
+export class Widget {
+  constructor(block, { getSettings, onToast, kind = 'dsui' } = {}) {
     this.block = block;
+    this.kind = kind === 'html' ? 'html' : 'dsui';
     this.getSettings = getSettings;
     this.onToast = onToast;
     this.id = `dsui-${++nextWidgetId}`;
@@ -339,16 +340,20 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
     root.className = 'dsui-widget';
     root.dataset.dsuiId = this.id;
     root.dataset.state = 'streaming';
+    const actions =
+      this.kind === 'html'
+        ? `<span class="dsui-actions">
+             <button type="button" class="dsui-btn" data-act="code" title="切换查看源码">代码</button>
+             <button type="button" class="dsui-btn" data-act="copy" title="复制源码">复制</button>
+             <button type="button" class="dsui-btn" data-act="download" title="下载 HTML">下载</button>
+           </span>`
+        : '';
     root.innerHTML = `
       <div class="dsui-head">
         <span class="dsui-mark" aria-hidden="true">✦</span>
         <span class="dsui-title">交互界面</span>
         <span class="dsui-status" data-busy="1">生成中…</span>
-        <span class="dsui-actions">
-          <button type="button" class="dsui-btn" data-act="code" title="切换查看源码">代码</button>
-          <button type="button" class="dsui-btn" data-act="copy" title="复制源码">复制</button>
-          <button type="button" class="dsui-btn" data-act="fullscreen" title="全屏">全屏</button>
-        </span>
+        ${actions}
       </div>
       <div class="dsui-body">
         <div class="dsui-placeholder"><span class="dsui-spinner"></span><span>正在构建界面…</span></div>
@@ -356,14 +361,6 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
         <pre class="dsui-code" hidden><code></code></pre>
       </div>
       <div class="dsui-foot" hidden></div>
-      <div class="dsui-pending" hidden>
-        <span class="dsui-pending-label">组件请求发送消息：</span>
-        <span class="dsui-pending-text"></span>
-        <span class="dsui-pending-actions">
-          <button type="button" class="dsui-btn dsui-btn-primary" data-act="confirm-send">发送</button>
-          <button type="button" class="dsui-btn" data-act="cancel-send">取消</button>
-        </span>
-      </div>
     `;
 
     this.el = root;
@@ -374,9 +371,6 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
     this.codePanel = root.querySelector('.dsui-code');
     this.codeEl = root.querySelector('.dsui-code code');
     this.footEl = root.querySelector('.dsui-foot');
-    this.pendingEl = root.querySelector('.dsui-pending');
-    this.pendingTextEl = root.querySelector('.dsui-pending-text');
-    this.pending = null;
     this.sendTimes = [];
 
     // 初始高度，避免 iframe 高度为 0 时内容测量异常
@@ -405,31 +399,10 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
     const act = button.dataset.act;
     if (act === 'code') this.toggleCode(button);
     else if (act === 'copy') this.copyCode(button);
-    else if (act === 'fullscreen') this.toggleFullscreen(button);
-    else if (act === 'confirm-send') this.confirmPendingSend();
-    else if (act === 'cancel-send') this.cancelPendingSend();
+    else if (act === 'download') this.downloadCode(button);
   }
 
-  confirmPendingSend() {
-    const text = this.pending;
-    this.cancelPendingSend();
-    if (!text) return;
-    this.sendTimes = this.sendTimes.filter((t) => Date.now() - t < 60000);
-    if (this.sendTimes.length >= 5) {
-      this.onToast?.('该组件发送过于频繁，请稍后再试');
-      return;
-    }
-    this.sendTimes.push(Date.now());
-    this.sendMessageToChat(text);
-  }
-
-  cancelPendingSend() {
-    this.pending = null;
-    clearTimeout(this.pendingTimer);
-    if (this.pendingEl) this.pendingEl.hidden = true;
-  }
-
-  requestPendingSend(text) {
+  handleWidgetSend(text) {
     const content = String(text ?? '').trim();
     if (!content) return;
     const settings = this.getSettings() || {};
@@ -437,13 +410,13 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
       this.onToast?.('界面回传已关闭（可在设置中开启）');
       return;
     }
-    this.pending = content;
-    if (this.pendingTextEl) {
-      this.pendingTextEl.textContent = content.length > 120 ? content.slice(0, 120) + '…' : content;
+    this.sendTimes = this.sendTimes.filter((t) => Date.now() - t < 60000);
+    if (this.sendTimes.length >= 5) {
+      this.onToast?.('该组件发送过于频繁，请稍后再试');
+      return;
     }
-    if (this.pendingEl) this.pendingEl.hidden = false;
-    clearTimeout(this.pendingTimer);
-    this.pendingTimer = setTimeout(() => this.cancelPendingSend(), 30000);
+    this.sendTimes.push(Date.now());
+    this.sendMessageToChat(content);
   }
 
   toggleCode(button) {
@@ -478,38 +451,25 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
     }, 1400);
   }
 
-  toggleFullscreen(button) {
-    const on = this.el.classList.toggle('dsui-fullscreen');
-    button.classList.toggle('is-active', on);
-    button.textContent = on ? '退出' : '全屏';
-    button.title = on ? '退出全屏（Esc）' : '全屏';
-    if (on) {
-      this.iframe.style.height = '';
-      this.fullscreenKeyHandler = (event) => {
-        if (event.key === 'Escape') {
-          this.exitFullscreen();
-        }
-      };
-      document.addEventListener('keydown', this.fullscreenKeyHandler, true);
-    } else {
-      this.exitFullscreen();
-    }
-  }
-
-  exitFullscreen() {
-    if (!this.el?.classList.contains('dsui-fullscreen')) return;
-    this.el.classList.remove('dsui-fullscreen');
-    this.iframe.style.height = '';
-    this.applyHeight(this.lastHeight || 320);
-    const button = this.el.querySelector('[data-act="fullscreen"]');
-    if (button) {
-      button.classList.remove('is-active');
-      button.textContent = '全屏';
-      button.title = '全屏';
-    }
-    if (this.fullscreenKeyHandler) {
-      document.removeEventListener('keydown', this.fullscreenKeyHandler, true);
-      this.fullscreenKeyHandler = null;
+  downloadCode(button) {
+    try {
+      const title = (this.titleEl?.textContent || 'component').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 60);
+      const blob = new Blob([this.code], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title || 'component'}.html`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      button.textContent = '已下载';
+      setTimeout(() => {
+        button.textContent = '下载';
+      }, 1400);
+    } catch {
+      this.onToast?.('下载失败，请切换「代码」手动复制');
     }
   }
 
@@ -629,9 +589,6 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
         break;      case 'navigating':
         this.markNavigated();
         break;
-      case 'escape':
-        this.exitFullscreen();
-        break;
       case 'height':
         this.applyHeight(data.height);
         break;
@@ -642,7 +599,7 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
         this.showError(data.message);
         break;
       case 'sendMessage':
-        this.requestPendingSend(data.text);
+        this.handleWidgetSend(data.text);
         break;
       default:
         break;
@@ -650,10 +607,8 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
   }
 
   applyHeight(height) {
-    const settings = this.getSettings() || {};
     const h = clampWidgetHeight(height, window.innerHeight);
     this.lastHeight = h;
-    if (this.el?.classList.contains('dsui-fullscreen')) return;
     this.iframe.style.height = `${h}px`;
   }
 
@@ -734,10 +689,6 @@ export class Widget {  constructor(block, { getSettings, onToast }) {
     clearTimeout(this.readyTimer);
     clearTimeout(this.streamRenderTimer);
     clearTimeout(this.navTimeout);
-    clearTimeout(this.pendingTimer);
-    if (this.fullscreenKeyHandler) {
-      document.removeEventListener('keydown', this.fullscreenKeyHandler, true);
-    }
     WIDGETS_BY_TOKEN.delete(this.token);
     ALL_WIDGETS.delete(this);
     this.el?.remove();

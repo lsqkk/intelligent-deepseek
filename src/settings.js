@@ -8,6 +8,7 @@ const STORAGE_KEY = '__dsui_settings_v1';
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   injectPrompt: true,
+  injectEveryTurn: false,
   autoRender: true,
   renderPlainHtml: true,
   allowWidgetSend: true,
@@ -73,6 +74,9 @@ function normalize(value) {
         out[key] = value[key];
       }
     }
+    // 从旧版本升级：旧语义里 injectPrompt=false 表示"完全不注入"，
+    // 现在改为默认"每个新会话首条消息注入一次"，需要把老用户的关闭状态迁移为开启。
+    if (value.injectEveryTurn === undefined) out.injectPrompt = true;
   }
   return out;
 }

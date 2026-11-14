@@ -11,8 +11,44 @@ import { getPageWindow } from './env.js';
 
 const COMPLETION_URLS = ['/api/v0/chat/completion', '/api/v0/chat/edit_message'];
 const HISTORY_URLS = ['/api/v0/chat/history_messages', '/api/v0/share/content'];
+const INJECTED_KEY = '__dsui_injected_sessions_v1';
+const MAX_TRACKED_SESSIONS = 100;
 
 let installed = false;
+let injectedSessions = loadInjectedSessions();
+
+function loadInjectedSessions() {
+  try {
+    const raw = localStorage.getItem(INJECTED_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function markSessionInjected(sessionId) {
+  if (!sessionId) return;
+  injectedSessions[sessionId] = Date.now();
+  const keys = Object.keys(injectedSessions);
+  if (keys.length > MAX_TRACKED_SESSIONS) {
+    keys
+      .sort((a, b) => Number(injectedSessions[a]) - Number(injectedSessions[b]))
+      .slice(0, keys.length - MAX_TRACKED_SESSIONS)
+      .forEach((key) => delete injectedSessions[key]);
+  }
+  try {
+    localStorage.setItem(INJECTED_KEY, JSON.stringify(injectedSessions));
+  } catch {}
+}
+
+/** 注入策略：默认每个新会话只注入首条消息；injectEveryTurn 开启后才每轮注入 */
+export function shouldInjectPrompt(settings, sessionId, injected = injectedSessions) {
+  if (!settings?.enabled || !settings.injectPrompt) return false;
+  if (settings.injectEveryTurn) return true;
+  if (!sessionId) return true;
+  return !injected[sessionId];
+}
 
 export function installInterceptors(getSettings) {
   if (installed) return;
@@ -221,9 +257,12 @@ function injectIntoJsonBody(body, settings) {
     return body;
   }
   if (!parsed || typeof parsed !== 'object' || typeof parsed.prompt !== 'string') return body;
+  const sessionId = typeof parsed.chat_session_id === 'string' ? parsed.chat_session_id : '';
+  if (!shouldInjectPrompt(settings, sessionId)) return body;
   const nextPrompt = applyInjection(parsed.prompt, settings);
   if (nextPrompt === parsed.prompt) return body;
   parsed.prompt = nextPrompt;
+  markSessionInjected(sessionId);
   try {
     const pageWindow = getPageWindow();
     pageWindow.__dsuiInjectedCount = (pageWindow.__dsuiInjectedCount || 0) + 1;

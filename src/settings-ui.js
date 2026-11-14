@@ -63,17 +63,20 @@ select:focus, textarea:focus { border-color: var(--accent); }
 
 const VERSION = typeof __DS_VERSION__ === 'undefined' ? 'dev' : __DS_VERSION__;
 
-const TOGGLES = [  { key: 'enabled', label: '启用 Intelligent UI', desc: '总开关：关闭后不注入、不渲染' },
-  { key: 'injectPrompt', label: '每轮自动注入界面协议', desc: '在发送请求里追加 dsui 协议，界面不可见' },
+const TOGGLES = [
+  { key: 'enabled', label: '启用 Intelligent UI', desc: '总开关：关闭后不注入、不渲染' },
+  { key: 'injectPrompt', label: '自动注入界面协议', desc: '新会话首条消息注入一次（推荐）' },
+  { key: 'injectEveryTurn', label: '每轮都注入', desc: '默认关闭；开启后每轮携带协议，更耗 token' },
   { key: 'autoRender', label: '自动渲染 dsui 代码块', desc: '流式生成时实时刷新为可交互 iframe' },
   { key: 'renderPlainHtml', label: '同时渲染普通 html 完整文档', desc: '模型没按协议输出时的兜底，可能误伤代码展示' },
-  { key: 'allowWidgetSend', label: '允许组件回传消息', desc: '组件调用 dsui.sendMessage 时自动发一条对话' },
-  { key: 'showFab', label: '显示悬浮设置按钮', desc: '关闭后可用油猴菜单打开设置' },
+  { key: 'allowWidgetSend', label: '允许组件回传消息', desc: '组件调用 dsui.sendMessage 时直接发一条对话' },
+  { key: 'showFab', label: '显示设置按钮', desc: '默认在输入框附件按钮左侧，关闭后可用油猴菜单打开' },
 ];
 
 export function installSettingsUI({ getSettings }) {
   let panelHost = null;
   let fab = null;
+  let fabPlacementTimer = null;
 
   const openPanel = () => {
     if (panelHost?.isConnected) {
@@ -207,11 +210,34 @@ export function installSettingsUI({ getSettings }) {
         openPanel();
       });
       document.body.appendChild(fab);
+      placeFab();
+      setTimeout(placeFab, 600);
+      setTimeout(placeFab, 1500);
+      if (!fabPlacementTimer) fabPlacementTimer = setInterval(placeFab, 1200);
     } else if (!shouldShow && fab) {
+      clearInterval(fabPlacementTimer);
+      fabPlacementTimer = null;
       fab.remove();
       fab = null;
       closePanel();
     }
+  };
+
+  /** 优先放到输入框附件按钮左边；找不到输入框时用右下角悬浮兜底 */
+  const placeFab = () => {
+    if (!fab) return;
+    const fileInput = document.querySelector('input[type="file"]');
+    const uploadRow = fileInput?.parentElement;
+    if (uploadRow && uploadRow.querySelector('[role="button"]')) {
+      if (fab.parentElement !== uploadRow) uploadRow.insertBefore(fab, uploadRow.firstElementChild);
+      fab.classList.remove('dsui-fab-floating');
+      fab.title = 'Intelligent UI 设置（注入协议 / 渲染 / 回传确认）';
+      fab.hidden = false;
+      return;
+    }
+    if (fab.parentElement !== document.body) document.body.appendChild(fab);
+    fab.classList.add('dsui-fab-floating');
+    fab.hidden = false;
   };
 
   syncFab();

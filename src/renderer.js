@@ -3,7 +3,7 @@
  * 兼容流式输出（内容增长时渐进刷新 iframe）与 React 重渲染（节点被替换后自动重建）。
  */
 import { PROMPT_END, PROMPT_START } from './prompt.js';
-import { findAssistantRoots, readCode, shouldRenderBlock, SELECTORS } from './dom.js';
+import { findAssistantRoots, readCode, readLang, shouldRenderBlock, SELECTORS } from './dom.js';
 import { Widget, installWidgetMessageRouter, applyThemeToAll } from './widget.js';
 import { detectTheme, watchTheme } from './theme.js';
 
@@ -63,7 +63,9 @@ export function startRenderer({ getSettings, onToast }) {
           widget = adoptAdjacentWidget(block);
         }
         if (!widget) {
-          widget = new Widget(block, { getSettings, onToast });
+          const lang = readLang(block);
+          const kind = lang === 'html' || lang === 'htm' || lang === 'svg' ? 'html' : 'dsui';
+          widget = new Widget(block, { getSettings, onToast, kind });
           widgets.set(block, widget);
           widget.mount();
         } else if (widget.block !== block) {

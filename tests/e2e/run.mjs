@@ -24,6 +24,7 @@ const script = fs.readFileSync(path.join(root, 'dist/intelligent-deepseek.user.j
 const settings = {
   enabled: true,
   injectPrompt: true,
+  injectEveryTurn: false,
   autoRender: true,
   renderPlainHtml: true,
   allowWidgetSend: true,
@@ -108,20 +109,6 @@ async function waitCompletion(timeout = 180000) {
     async () => (await page.evaluate(() => window.__dsuiCompletionCount || 0)) > baseline,
     { timeout, label: 'completion' }
   );
-}
-
-async function stopGeneration() {
-  const clicked = await page.evaluate(() => {
-    const btn = [...document.querySelectorAll('div[role="button"]')].find((b) =>
-      b.querySelector('svg path')?.getAttribute('d')?.startsWith('M5.5498 9.75V5')
-    );
-    if (btn) {
-      btn.click();
-      return true;
-    }
-    return false;
-  });
-  return clicked;
 }
 
 /* ---------------------------------------------------------------- */
@@ -224,9 +211,12 @@ async function waitStreamingEnd(timeout = 25000) {
   return waitFor(
     async () =>
       page.evaluate(() => {
+        // 生成中时输入区的圆形发送按钮会变成「停止」方块图标
         const stop = [...document.querySelectorAll('div[role="button"]')].some((b) => {
-          const path = b.querySelector('svg path')?.getAttribute('d');
-          if (!path?.startsWith('M5.5498 9.75V5')) return false;
+          const cls = String(b.className || '');
+          const path = b.querySelector('svg path')?.getAttribute('d') || '';
+          if (!cls.includes('ds-button--circle') || !cls.includes('ds-button--primary')) return false;
+          if (!path.startsWith('M2 4.88')) return false;
           const rect = b.getBoundingClientRect();
           return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
         });
@@ -239,6 +229,30 @@ async function waitStreamingEnd(timeout = 25000) {
 
 const injected = await page.evaluate(() => Boolean(window.__dsui));
 check('油猴脚本已注入页面', injected);
+const readFabInfo = () =>
+  page.evaluate(() => {
+    const fab = document.getElementById('dsui-fab');
+    const fileInput = document.querySelector('input[type="file"]');
+    const row = fileInput?.parentElement || null;
+    const uploadBtn = row?.querySelector('[role="button"]') || null;
+    return {
+      found: Boolean(fab),
+      inComposer: Boolean(fab && row && fab.parentElement === row),
+      beforeUpload: Boolean(
+        fab && uploadBtn && fab.compareDocumentPosition(uploadBtn) & Node.DOCUMENT_POSITION_FOLLOWING
+      ),
+    };
+  });
+await waitFor(async () => {
+  const info = await readFabInfo();
+  return info.found && info.inComposer && info.beforeUpload;
+}, { timeout: 12000, label: 'fab placement' }).catch(() => false);
+const fabInfo = await readFabInfo();
+check(
+  '设置按钮并排在附件按钮左侧',
+  fabInfo.found && fabInfo.inComposer && fabInfo.beforeUpload,
+  JSON.stringify(fabInfo)
+);
 check('新对话已就绪', await ensureNewChat(), `url=${page.url()}`);
 
 let run = await sendPromptAndWait(PROMPT);
@@ -333,26 +347,12 @@ try {
 }
 check('iframe 内输入可交互并更新界面', interactionOk, interactionDetail);
 
-// ---- 工具栏 ----
-let toolbarOk = false;
-try {
-  await page.locator('.dsui-widget .dsui-btn[data-act="code"]').first().click();
-  await page.waitForTimeout(300);
-  const codeText = await page.locator('.dsui-widget .dsui-code').first().innerText();
-  toolbarOk = codeText.length > 300 && codeText.includes('<');
-  await page.locator('.dsui-widget .dsui-btn[data-act="code"]').first().click();
-} catch {}
-check('「代码」按钮可切换源码', toolbarOk);
-
-let fullscreenOk = false;
-try {
-  await page.locator('.dsui-widget .dsui-btn[data-act="fullscreen"]').first().click();
-  await page.waitForTimeout(400);
-  fullscreenOk = await page.evaluate(() => document.querySelector('.dsui-widget')?.classList.contains('dsui-fullscreen'));
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(300);
-} catch {}
-check('「全屏」按钮可用且 Esc 可退出', fullscreenOk);
+// ---- 工具栏：dsui 卡片根据设计不显示代码/复制/下载，避免打断对话 ----
+check(
+  'dsui 卡片不显示右侧工具栏',
+  (await page.locator('.dsui-widget .dsui-actions').count()) === 0,
+  `actions=${await page.locator('.dsui-widget .dsui-actions').count()}`
+);
 
 // ---- 组件回传消息 ----
 const testWidgetHtml = `<!doctype html><html><head><title>回传测试</title></head><body style="padding:16px;font-family:sans-serif">
@@ -367,8 +367,9 @@ check(
 );
 const testFrame = page.frameLocator('#dsui-test-host iframe');
 let clicked = false;
-let pendingVisible = false;
-for (let attempt = 0; attempt < 3 && !pendingVisible; attempt++) {
+let backchannelSent = false;
+const bcBefore = await page.evaluate(() => window.__dsuiCompletionCount || 0);
+for (let attempt = 0; attempt < 3 && !backchannelSent; attempt++) {
   try {
     await testFrame.locator('#send').click({ timeout: 10000 });
     clicked = true;
@@ -377,30 +378,20 @@ for (let attempt = 0; attempt < 3 && !pendingVisible; attempt++) {
     await page.waitForTimeout(500);
     continue;
   }
-  pendingVisible = await waitFor(
-    async () =>
-      page.evaluate(() => (window.__dsui?.debugWidgets?.() || []).some((w) => Boolean(w.pending))),
-    { timeout: 5000, label: 'pending send' }
+  backchannelSent = await waitFor(
+    async () => (await page.evaluate(() => window.__dsuiCompletionCount || 0)) > bcBefore,
+    { timeout: 25000, label: 'backchannel completion' }
   );
-  if (!pendingVisible) await page.waitForTimeout(800);
+  if (!backchannelSent) await page.waitForTimeout(800);
 }
-const pendingPreview = pendingVisible
-  ? await page.evaluate(() => (window.__dsui?.debugWidgets?.() || []).find((w) => w.pending)?.pending || '')
-  : '';
-check('组件回传进入父端确认栏', pendingVisible && pendingPreview.includes('BACKCHANNEL_OK'), pendingPreview);
-if (pendingVisible) await page.locator('#dsui-test-host [data-act="confirm-send"]').click();
-const bcBefore = await page.evaluate(() => window.__dsuiCompletionCount || 0);
-const backchannelSent = await waitFor(
-  async () => (await page.evaluate(() => window.__dsuiCompletionCount || 0)) > bcBefore,
-  { timeout: 40000, label: 'backchannel completion' }
-);
 if (!backchannelSent) {
   const debug = await page.evaluate(() => {
     const ta = [...document.querySelectorAll('textarea')].find((t) => t.offsetParent !== null);
     return {
       composer: ta?.value,
       stop: [...document.querySelectorAll('div[role="button"]')]
-        .filter((b) => b.querySelector('svg path')?.getAttribute('d')?.startsWith('M5.5498 9.75V5'))
+        .filter((b) => String(b.className).includes('ds-button--circle'))
+        .filter((b) => b.querySelector('svg path')?.getAttribute('d')?.startsWith('M2 4.88'))
         .map((b) => ({ rect: b.getBoundingClientRect().toJSON(), cls: b.className })),
       sendButtons: [...document.querySelectorAll('div[role="button"]')]
         .filter((b) => String(b.className).includes('ds-button--circle'))
@@ -412,11 +403,14 @@ if (!backchannelSent) {
   console.log('[e2e] backchannel debug:', JSON.stringify(debug, null, 2));
   await page.screenshot({ path: path.join(outDir, '02b-backchannel-failed.png') });
 }
-check('确认后组件消息发送到对话', clicked && pendingVisible && backchannelSent);
+check('点击组件按钮后直接发送消息并触发新对话', clicked && backchannelSent);
+const bcBody = completionBodies[completionBodies.length - 1] || '';
+check(
+  '同一会话后续轮次默认不再注入协议（首条消息注入一次）',
+  bcBody.length > 0 && !bcBody.includes('⟦DS-UI'),
+  bcBody.slice(0, 160)
+);
 await page.waitForTimeout(1000);
-const stopped = await stopGeneration();
-console.log('[e2e] 停止生成:', stopped);
-await page.waitForTimeout(800);
 await page.screenshot({ path: path.join(outDir, '02-backchannel.png') });
 
 // ---- 刷新后历史净化 + 重新渲染 ----

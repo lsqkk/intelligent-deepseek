@@ -66,6 +66,7 @@ html.dark .dsui-widget {
   font-size: 11.5px;
   color: var(--dsui-muted);
   white-space: nowrap;
+  margin-left: auto;
 }
 .dsui-status[data-busy="1"]::after {
   content: "";
@@ -79,7 +80,7 @@ html.dark .dsui-widget {
 }
 @keyframes dsui-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 .dsui-actions {
-  margin-left: auto;
+  margin-left: 6px;
   display: flex;
   gap: 2px;
   align-items: center;
@@ -146,7 +147,10 @@ html.dark .dsui-widget {
   line-height: 1.55;
   white-space: pre;
   tab-size: 2;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.dsui-code::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dsui-code code { font: inherit; color: inherit; }
 .dsui-foot {
   padding: 7px 12px;
@@ -158,83 +162,51 @@ html.dark .dsui-widget {
   word-break: break-word;
 }
 body.dark .dsui-foot, html.dark .dsui-foot { color: #fb923c; }
-.dsui-pending {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--dsui-border);
-  background: var(--dsui-soft);
-  font-size: 12px;
-  color: var(--dsui-fg);
-}
-.dsui-pending[hidden] { display: none; }
-.dsui-pending-label { color: var(--dsui-muted); white-space: nowrap; }
-.dsui-pending-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsui-fg);
-}
-.dsui-pending-actions { display: flex; gap: 4px; flex: 0 0 auto; }
-.dsui-btn-primary { background: var(--dsui-accent); color: #fff; }
-.dsui-btn-primary:hover { background: var(--dsui-accent); color: #fff; opacity: .9; }
 
-.dsui-widget.dsui-fullscreen {
-  position: fixed;
-  inset: 22px;
-  z-index: 2147483001;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
-}
-.dsui-widget.dsui-fullscreen::before {
-  content: "";
-  position: fixed;
-  inset: -22px;
-  background: rgba(10, 12, 16, .45);
-  z-index: -1;
-  backdrop-filter: blur(2px);
-}
-.dsui-widget.dsui-fullscreen .dsui-body { flex: 1; min-height: 0; }
-.dsui-widget.dsui-fullscreen .dsui-frame { height: 100% !important; }
-.dsui-widget.dsui-fullscreen .dsui-code { max-height: none; height: 100%; box-sizing: border-box; }
-
-/* 设置入口悬浮按钮 */
+/* 设置入口按钮：默认与输入框的附件按钮并排 */
 #dsui-fab {
+  position: static;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #8a8f98;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+#dsui-fab:hover { background: rgba(127, 127, 127, .14); color: #4d6bfe; }
+body.dark #dsui-fab, html.dark #dsui-fab { color: #9aa0aa; }
+body.dark #dsui-fab:hover, html.dark #dsui-fab:hover { color: #8fa2ff; }
+#dsui-fab[hidden] { display: none !important; }
+/* 找不到输入框时的兜底悬浮样式（例如分享页/登录页） */
+#dsui-fab.dsui-fab-floating {
   position: fixed;
   right: 18px;
   bottom: 96px;
   z-index: 2147483000;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
   border: 1px solid rgba(77, 107, 254, .28);
   background: rgba(255, 255, 255, .86);
-  color: #4d6bfe;
-  font-size: 16px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   box-shadow: 0 2px 10px rgba(16, 24, 40, .12);
   backdrop-filter: blur(8px);
-  transition: transform .15s ease, box-shadow .15s ease;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-#dsui-fab:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(16, 24, 40, .18); }
-body.dark #dsui-fab, html.dark #dsui-fab {
+body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
   background: rgba(28, 29, 31, .88);
   border-color: rgba(107, 133, 255, .36);
-  color: #8fa2ff;
 }
 @media (max-width: 640px) {
-  #dsui-fab { right: 12px; bottom: 80px; width: 32px; height: 32px; font-size: 14px; }
+  #dsui-fab.dsui-fab-floating { right: 12px; bottom: 80px; width: 30px; height: 30px; font-size: 13px; }
 }
 
 /* toast */

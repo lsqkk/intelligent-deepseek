@@ -15,8 +15,8 @@ const header = `// ==UserScript==
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
 // @version      ${pkg.version}
-// @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: per-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
-// @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：每轮自动注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
+// @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
+// @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
 // @license      MIT
 // @match        https://chat.deepseek.com/*

@@ -95,50 +95,50 @@ DeepSeek 会把带协议的用户消息原样存到服务端。刷新/切会话�
 
 ## 4. iframe 沙箱与 bridge
 
-- `sandbox="allow-scripts allow-pointer-lock allow-forms"`（无 same-origin），
+- `sandbox="allow-scripts"`（无 same-origin / forms / pointer-lock / top-navigation），
   组件拿不到父页面 cookie/localStorage，`event.origin === "null"`。
 - 文档内注入 CSP：
   ```
   default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'unsafe-eval';
-  img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; worker-src 'none'
+  img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none';
+  worker-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'
   ```
+- 同时注入基础样式：`html,body{background:transparent;margin:0}` + 隐藏滚动条（`scrollbar-width:none`、`::-webkit-scrollbar{display:none}`）。
 - bridge 注入在 `<head>` 最前（早于模型脚本），提供：
   - `window.dsui.sendMessage(text)`：先校验用户手势（`navigator.userActivation` 或 4s 内
-    有 pointerdown/keydown），防止页面加载即自动发消息；1.2s 内重复调用会被限流。
+    有 trusted pointerdown/keydown），防止页面加载即自动发消息；1.2s 内重复调用会被限流。
   - `window.dsui.setTitle`、`resize`、`theme`、`onThemeChange`。
   - `ResizeObserver` 测量高度 → `postMessage` → 父页面 `clamp(140, h, 72vh)`。
-  - 主题：父页面把 `{type:'theme'}` 发进 iframe，bridge 设置 `<html data-ds-theme="dark">`
-    并派发 `dsui:theme` 事件。
-- 父页面路由：每个卡片随机 token；只接受 `event.source === iframe.contentWindow` 的消息。
-- 回传落地：`src/chat.js` 用原生 `HTMLTextAreaElement.prototype.value` setter + `input` 事件
-  写入受控 textarea，再点击发送按钮；生成中会重试最多 30s。
+  - 主题：父页面重建 iframe 时传入主题（`data-ds-theme` + 媒体查询展开），不向 iframe 发 token。
+- 父页面路由：每个卡片随机 token + 每次 srcdoc 递增 docSeq；只接受 `event.source === iframe.contentWindow`
+  且 `data.seq === docSeq` 的消息。
+- 回传落地：收到合法 sendMessage 后直接调用 `src/chat.js`：写受控 textarea → 点击发送箭头 →
+  校验输入框清空/新消息出现；失败恢复草稿。每卡片 1 分钟最多 5 次。
 
 ## 5. 协议
 
 `src/prompt.js` 的 `ZH_PROTOCOL`，核心约束：
 - 组件必须放在 ` ```dsui ` 代码块（强格式要求，实测能显著提高遵守率；DeepSeek 默认倾向输出 `html`）；
-- 一次回答可以输出多个 `dsui` 块，每个都是独立完整文档；
+- 一次回答可以输出多个 `dsui` 块；内容多时拆成 2-5 个，每个只专注一个交互演示；
 - 单文件自包含、禁外链/网络、图片 SVG/data URI/emoji；
 - 初次渲染即展示结果、避免 100vh；
-- 主题变量 + `:root[data-ds-theme="dark"]`；
+- 视觉融入对话：根节点/body 不要背景色，不要整体套卡片/外框/阴影；
+- 主题变量（--fg/--muted/--border/--accent）+ `:root[data-ds-theme="dark"]`；
 - 语言跟随用户、不要用普通代码块替代。
 
 ## 6. 组件回传
 
-组件里调用的 `window.dsui.sendMessage(text)` 不会直接发送：
-1. bridge 先做用户手势/频率检查（`isTrusted` pointerdown/keydown，4s 窗口，1.2s 限流）；
-2. 父页面收到后只在卡片底部显示「组件请求发送消息」确认栏（30s 自动取消）；
-3. 用户点「发送」才走 `src/chat.js`：等待输入框可用 → 写受控 textarea → 点击发送箭头 → 校验输入框清空/新消息出现；失败恢复草稿。
-4. 每卡片 1 分钟内最多 5 次。
-
-这是 UX 防误触，不是密码学安全边界；真正的隔离靠 iframe sandbox + CSP + 不注入到页面主 world。
+- bridge 做用户手势检查（`isTrusted` pointerdown/keydown，4s 窗口）和 1.2s 限流；
+- 父页面校验 token + docSeq 后**直接发送**，不弹确认栏；
+- 每卡片 1 分钟内最多 5 次；
+- 这是 UX 防误触，不是密码学安全边界；真正的隔离靠 iframe sandbox + CSP。
 
 ## 7. 测试
 
-- 单元：`pnpm test`（30 项：prompt 注入/剥离、深度净化、DOM 语言解析、文档构建、主题 CSS 适配、气泡清理）。
-- 离线：`pnpm test:mock`（28 项），用 `tests/mock/mock-deepseek.html` 模拟消息 DOM、流式输出、受控输入框，覆盖渲染、渐进预览、主题、节点替换、父端确认、无 seq 拒绝、导航拦截、设置面板、清理。
+- 单元：`pnpm test`（34 项：prompt 注入/剥离、深度净化、DOM 语言解析、文档构建、主题 CSS 适配、气泡清理）。
+- 离线：`pnpm test:mock`（25 项），用 `tests/mock/mock-deepseek.html` 模拟消息 DOM、流式输出、受控输入框，覆盖渲染、渐进预览、主题、节点替换、直接回传、无 seq 拒绝、导航拦截、设置面板、清理。
 - 真机：`pnpm login` 一次登录后 `pnpm test:e2e`（23 项），真实账号跑：
-  注入 → 模型输出 dsui → 渲染/交互/工具栏 → 父端确认后回传 → 指定会话刷新净化 → 主题。
+  注入 → 模型输出 dsui → 渲染/交互/无工具栏 → 组件回传 → 指定会话刷新净化 → 主题 → 设置按钮位置。
   产物在 `test-results/`。
 
 ## 8. 改版急救清单

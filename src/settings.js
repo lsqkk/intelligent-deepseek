@@ -10,9 +10,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   injectPrompt: true,
   injectEveryTurn: false,
   autoRender: true,
-  renderPlainHtml: true,
+  renderPlainHtml: false,
   allowWidgetSend: true,
+  widgetSendMode: 'draft',
   protocolLanguage: 'zh',
+  visualPreference: 'auto',
   customProtocol: '',
   showFab: true,
   debug: false,
@@ -74,9 +76,10 @@ function normalize(value) {
         out[key] = value[key];
       }
     }
-    // 从旧版本升级：旧语义里 injectPrompt=false 表示"完全不注入"，
-    // 现在改为默认"每个新会话首条消息注入一次"，需要把老用户的关闭状态迁移为开启。
-    if (value.injectEveryTurn === undefined) out.injectPrompt = true;
+    if (!['auto', 'explicit', 'frequent'].includes(out.visualPreference)) {
+      out.visualPreference = DEFAULT_SETTINGS.visualPreference;
+    }
+    if (out.widgetSendMode !== 'send') out.widgetSendMode = DEFAULT_SETTINGS.widgetSendMode;
   }
   return out;
 }

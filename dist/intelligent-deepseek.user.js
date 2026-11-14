@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.2.0
+// @version      1.2.1
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -23,9 +23,11 @@
     injectPrompt: true,
     injectEveryTurn: false,
     autoRender: true,
-    renderPlainHtml: true,
+    renderPlainHtml: false,
     allowWidgetSend: true,
+    widgetSendMode: "draft",
     protocolLanguage: "zh",
+    visualPreference: "auto",
     customProtocol: "",
     showFab: true,
     debug: false
@@ -86,7 +88,10 @@
           out[key] = value[key];
         }
       }
-      if (value.injectEveryTurn === void 0) out.injectPrompt = true;
+      if (!["auto", "explicit", "frequent"].includes(out.visualPreference)) {
+        out.visualPreference = DEFAULT_SETTINGS.visualPreference;
+      }
+      if (out.widgetSendMode !== "send") out.widgetSendMode = DEFAULT_SETTINGS.widgetSendMode;
     }
     return out;
   }
@@ -95,26 +100,30 @@
   var PROMPT_START = "⟦DS-UI v1⟧";
   var PROMPT_END = "⟦/DS-UI⟧";
   var ZH_PROTOCOL = `【强制格式】当你生成可交互界面组件时，代码块语言必须写成 dsui，禁止写成 html（写成 html 客户端只显示源码、无法交互）。
-A. 当回答涉及数据可视化、计算/换算、规划、对比、表单、模拟、教学演示、小游戏等，用界面能明显提升体验时，先给一句简短说明，然后用 \`\`\`dsui 代码块输出完整、自包含的 HTML（内联 CSS/JS，禁止外链/CDN/网络请求，图片只用 SVG、data URI 或 emoji；不要使用 localStorage/sessionStorage，状态放内存）。简单问答不要输出界面。
+A. 当回答涉及数据可视化、计算/换算、规划、对比、表单、模拟、教学演示、小游戏等，可参考上述触发偏好决定是否生成组件。先给一句简短说明，再用 \`\`\`dsui 代码块输出完整、自包含的 HTML（内联 CSS/JS，禁止外链/CDN/网络请求，图片只用 SVG、data URI 或 emoji；不要使用 localStorage/sessionStorage，状态放内存）。用户要求纯文字或源码时按要求输出；简单问答直接回答。
 B. 组件必须真实可交互，初次渲染就展示有用的结果，不要留空等待；避免 100vh 与固定超大高度，高度自适应。
-C. 不要把很长的页面塞进一个 dsui 块：内容多时拆分成 2-5 个 dsui，每个只专注一个交互演示（例如图表一个、表单一个、说明/小游戏一个）。
+C. 优先一个组件，但不要把很长的页面塞进一个 dsui 块。仅在各部分可独立使用且无共享状态时拆分。标注示例数据和假设，处理空值及非法输入，提供键盘可操作的控件和可见焦点。
 D. 视觉要融入对话：组件根节点/body 默认不要设置背景色（保持透明），不要把整体内容再套一层卡片、外框、圆角大背景或阴影；只有按钮、输入框、图表等内部元素可以有必要的样式。
 E. 在 :root 定义 --fg、--muted、--border、--accent 主题变量，深色适配用 :root[data-ds-theme="dark"] 覆盖（客户端会在 <html> 上设置 data-ds-theme，可另加 @media (prefers-color-scheme: dark) 兜底）。
-F. 需要用户继续对话时，调用 window.dsui.sendMessage('要发送给模型的文本')。
-G. 一次回答可以输出一个或多个 dsui 块，每个块都必须是完整可运行的 HTML；块内只放代码，块结束后不要再写解释；语言跟随用户。用户只是要"看代码"时用普通代码块，不要用 dsui。`;
+F. 需要用户继续对话时，提供明确的操作控件，注明会回传什么；仅在用户点击后调用 window.dsui.sendMessage('用户选择、数值和单位组成的消息')。
+G. 一次回答可以输出一个或多个 dsui 块，每个块都必须是完整可运行的 HTML；块内只放代码，关键结论与假设留在正文，语言跟随用户。用户只是要"看代码"时用普通代码块，不要用 dsui。`;
   var EN_PROTOCOL = `The client supports "intelligent UI": you can emit runnable interactive components that the client renders automatically.
-A. When an interactive UI clearly improves the answer (data visualization, calculator/converter, planner, comparison, form, simulation, tutorial, mini-game), append a \`\`\`dsui fenced block containing a complete self-contained HTML document (inline CSS/JS only; no external links, CDNs or network requests; images only as SVG, data URIs or emoji; no localStorage/sessionStorage — keep state in memory). Do not emit UI for simple Q&A.
+A. For data visualization, calculations or conversions, planning, comparisons, forms, simulations, tutorials, and mini-games, use the trigger preference above to decide whether to generate a component. Start with a short explanation, then use a \`\`\`dsui fenced block containing a complete self-contained HTML document (inline CSS/JS only; no external links, CDNs or network requests; images only as SVG, data URIs or emoji; no localStorage/sessionStorage — keep state in memory). Honor requests for text or source only. Answer simple questions directly.
 B. The component must be genuinely interactive and show useful results on first render; avoid 100vh and fixed oversized heights.
-C. Do not cram a long page into one dsui block: split into 2-5 dsui blocks, each focused on a single interactive demo (e.g. one chart, one form, one small game).
+C. Prefer one component, but do not cram a long page into one dsui block. Split only when parts are independently useful and share no state. Label sample data and assumptions, handle empty and invalid input, and provide keyboard controls and visible focus.
 D. Blend into the conversation: do NOT set a background color on the root/body by default (keep it transparent), and do NOT wrap everything in another card/frame/rounded panel/shadow. Only inner controls, charts, etc. may have necessary styling.
 E. Define theme variables --fg, --muted, --border, --accent on :root and override them for :root[data-ds-theme="dark"] (the client sets data-ds-theme on <html>; a @media (prefers-color-scheme: dark) fallback is optional).
-F. To continue the conversation from the UI, call window.dsui.sendMessage('text').
-G. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Use normal code blocks when the user only wants to read code.`;
+F. When the user needs to continue the conversation, provide a clearly labeled control that explains what will be passed back. Only after the user explicitly activates it, call window.dsui.sendMessage('text') with the selected values and units.
+G. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Keep key conclusions and assumptions in the chat and use the same language as the user. Use normal code blocks when the user only wants to read code.`;
   function getProtocol(settings) {
-    const base = settings?.protocolLanguage === "en" ? EN_PROTOCOL : ZH_PROTOCOL;
-    const custom = String(settings?.customProtocol || "").trim();
-    return custom ? `${base}
-F. 用户附加要求：${custom}` : base;
+    const en = settings?.protocolLanguage === "en";
+    const base = en ? EN_PROTOCOL : ZH_PROTOCOL;
+    const preference = settings?.visualPreference;
+    const trigger = preference === "explicit" ? en ? "Only generate a component when explicitly requested." : "仅在用户明确要求交互界面、工具或可视化时生成组件。" : preference === "frequent" ? en ? "Prefer interactive UI for meaningful trends, comparisons and calculations." : "对有实质内容的趋势、比较和计算，优先考虑交互界面。" : en ? "Use UI when requested or when it materially improves the task." : "用户明确要求，或界面能明显帮助理解、计算或决策时，才生成组件。";
+    const custom = String(settings?.customProtocol || "").replaceAll(PROMPT_START, "").replaceAll(PROMPT_END, "").trim();
+    const label = en ? "Additional presentation preferences (subject to the current request and component requirements)" : "附加呈现偏好（以本轮要求和组件约束为准）";
+    return [trigger, base, custom && `${label}
+${custom}`].filter(Boolean).join("\n");
   }
   function applyInjection(prompt, settings) {
     const clean = stripInjection(String(prompt ?? ""));
@@ -1451,6 +1460,11 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         this.onToast?.("输入框里已有未发送内容，请先发送或清空");
         return;
       }
+      if (this.getSettings()?.widgetSendMode !== "send") {
+        const staged = composer && !composer.disabled && !composer.readOnly && setComposerText(content);
+        this.onToast?.(staged ? "已填入输入框，可编辑后发送" : "暂时无法填入输入框");
+        return;
+      }
       this.onToast?.("界面正在发送消息…");
       const ok = await sendToChat(content);
       this.onToast?.(ok ? "已发送到对话" : "发送失败，请手动输入");
@@ -1705,7 +1719,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
 .wrap {  position: fixed;
   right: 18px;
   bottom: 142px;
-  width: 336px;
+  width: min(336px, calc(100vw - 36px));
   max-height: min(76vh, 640px);
   overflow: auto;
   border-radius: 14px;
@@ -1746,14 +1760,14 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.2.0";
+  var VERSION = false ? "dev" : "1.2.1";
   var TOGGLES = [
     { key: "enabled", label: "启用 Intelligent UI", desc: "总开关：关闭后不注入、不渲染" },
     { key: "injectPrompt", label: "自动注入界面协议", desc: "新会话首条消息注入一次（推荐）" },
     { key: "injectEveryTurn", label: "每轮都注入", desc: "默认关闭；开启后每轮携带协议，更耗 token" },
     { key: "autoRender", label: "自动渲染 dsui 代码块", desc: "流式生成时实时刷新为可交互 iframe" },
     { key: "renderPlainHtml", label: "同时渲染普通 html 完整文档", desc: "模型没按协议输出时的兜底，可能误伤代码展示" },
-    { key: "allowWidgetSend", label: "允许组件回传消息", desc: "组件调用 dsui.sendMessage 时直接发一条对话" },
+    { key: "allowWidgetSend", label: "允许组件回传消息", desc: "组件可把你的选择带回输入框，继续对话" },
     { key: "showFab", label: "显示设置按钮", desc: "默认在输入框附件按钮左侧，关闭后可用油猴菜单打开" }
   ];
   function installSettingsUI({ getSettings: getSettings2 }) {
@@ -1780,21 +1794,36 @@ select:focus, textarea:focus { border-color: var(--accent); }
         </div>
         <div class="body"></div>
         <div class="field">
-          <div class="label"><span>协议语言</span></div>
-          <select data-field="protocolLanguage">
+          <label class="label" for="dsui-visual-preference">何时生成交互界面</label>
+          <select id="dsui-visual-preference" data-field="visualPreference">
+            <option value="auto">自动判断（推荐）</option>
+            <option value="explicit">仅在我明确要求时</option>
+            <option value="frequent">更常使用图表和交互</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="dsui-widget-send-mode">组件回传方式</label>
+          <select id="dsui-widget-send-mode" data-field="widgetSendMode">
+            <option value="draft">填入输入框，由我发送（推荐）</option>
+            <option value="send">直接发送</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="dsui-protocol-language">协议语言</label>
+          <select id="dsui-protocol-language" data-field="protocolLanguage">
             <option value="zh">中文（推荐）</option>
             <option value="en">English</option>
           </select>
         </div>
         <div class="field">
-          <div class="label"><span>附加要求（可选）</span><span style="font-size:10px">会拼进协议末尾</span></div>
-          <textarea data-field="customProtocol" placeholder="例如：组件使用极简风格；优先输出 SVG 图表。"></textarea>
+          <label class="label" for="dsui-custom-protocol">呈现偏好（可选，会随协议发给 DeepSeek）</label>
+          <textarea id="dsui-custom-protocol" data-field="customProtocol" placeholder="例如：金额用人民币；默认显示月度趋势。"></textarea>
         </div>
         <div class="foot">
           <button class="btn primary" type="button" data-act="save">保存</button>
           <button class="btn" type="button" data-act="reset">恢复默认</button>
         </div>
-        <div class="hint">设置通过油猴存储保存。注入只作用于发往 DeepSeek 的请求，不修改对话显示；历史消息读取时会自动剥离注入内容。</div>
+        <div class="hint">默认在新会话的首条消息应用界面偏好。开启「每轮都注入」后，当前会话的下一条消息也会携带新设置。</div>
       </div>
     `;
       const body = shadow.querySelector(".body");
@@ -1814,6 +1843,10 @@ select:focus, textarea:focus { border-color: var(--accent); }
         body.appendChild(row);
       }
       const langSelect = shadow.querySelector('[data-field="protocolLanguage"]');
+      const visualPreference = shadow.querySelector('[data-field="visualPreference"]');
+      visualPreference.value = settings.visualPreference;
+      const widgetSendMode = shadow.querySelector('[data-field="widgetSendMode"]');
+      widgetSendMode.value = settings.widgetSendMode;
       langSelect.value = settings.protocolLanguage === "en" ? "en" : "zh";
       const custom = shadow.querySelector('[data-field="customProtocol"]');
       custom.value = settings.customProtocol || "";
@@ -1831,6 +1864,8 @@ select:focus, textarea:focus { border-color: var(--accent); }
           input.checked = Boolean(s[input.dataset.field]);
         });
         langSelect.value = s.protocolLanguage === "en" ? "en" : "zh";
+        visualPreference.value = s.visualPreference;
+        widgetSendMode.value = s.widgetSendMode;
         custom.value = s.customProtocol || "";
       };
       const readForm = () => {
@@ -1839,6 +1874,8 @@ select:focus, textarea:focus { border-color: var(--accent); }
           next[input.dataset.field] = input.checked;
         });
         next.protocolLanguage = langSelect.value;
+        next.visualPreference = visualPreference.value;
+        next.widgetSendMode = widgetSendMode.value;
         next.customProtocol = custom.value.trim();
         return next;
       };
@@ -1938,7 +1975,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.2.0", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.2.1", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -1967,7 +2004,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.2.0",
+      version: "1.2.1",
       getSettings,
       saveSettings,
       resetSettings: () => {
@@ -1981,7 +2018,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.2.0",
+          version: "1.2.1",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

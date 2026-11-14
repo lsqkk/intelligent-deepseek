@@ -3,7 +3,7 @@
  * 以及组件 -> 对话的回传通道（window.dsui.sendMessage）。
  */
 import { clampWidgetHeight, extractTitle } from './dom.js';
-import { sendToChat, getComposer } from './chat.js';
+import { sendToChat, getComposer, setComposerText } from './chat.js';
 import { detectTheme } from './theme.js';
 
 const WIDGETS_BY_TOKEN = new Map();
@@ -591,7 +591,8 @@ export class Widget {
         this.iframe?.classList.add('is-ready');
         this.placeholder?.classList.add('is-hidden');
         if (this.isFinal || this.renderedCode === this.code) this.setStatus('已就绪', false);
-        break;      case 'navigating':
+        break;
+      case 'navigating':
         this.markNavigated();
         break;
       case 'height':
@@ -633,6 +634,11 @@ export class Widget {
       this.onToast?.('输入框里已有未发送内容，请先发送或清空');
       return;
     }
+    if (this.getSettings()?.widgetSendMode !== 'send') {
+      const staged = composer && !composer.disabled && !composer.readOnly && setComposerText(content);
+      this.onToast?.(staged ? '已填入输入框，可编辑后发送' : '暂时无法填入输入框');
+      return;
+    }
     this.onToast?.('界面正在发送消息…');
     const ok = await sendToChat(content);
     this.onToast?.(ok ? '已发送到对话' : '发送失败，请手动输入');
@@ -641,7 +647,6 @@ export class Widget {
   setTheme(theme) {
     if (this.navigated || this.theme === theme) return;
     this.theme = theme;
-    // 重建文档即可同时更新 data-ds-theme 与 @media 兜底，无需向 iframe 发 token
     if (this.renderedCode) {
       this.renderedCode = '';
       this.scheduleRender(true);

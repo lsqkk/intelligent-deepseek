@@ -68,4 +68,10 @@ describe('prompt injection', () => {
     expect(getProtocol(settings)).toContain('dsui');
     expect(getProtocol(settings)).toMatch(/禁止写成 html/);
   });
+
+  it('allows proactive UI by default and reserves explicit-only for opt-in', () => {
+    expect(getProtocol(settings)).toContain('或界面能明显帮助');
+    expect(getProtocol({ ...settings, visualPreference: 'explicit' })).toContain('仅在用户明确要求');
+    expect(getProtocol({ ...settings, visualPreference: 'frequent' })).toContain('优先考虑交互界面');
+  });
 });

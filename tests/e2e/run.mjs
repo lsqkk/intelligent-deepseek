@@ -27,6 +27,7 @@ const settings = {
   injectEveryTurn: false,
   autoRender: true,
   renderPlainHtml: true,
+  widgetSendMode: 'send',
   allowWidgetSend: true,
   protocolLanguage: 'zh',
   customProtocol: '',

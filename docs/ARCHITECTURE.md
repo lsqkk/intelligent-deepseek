@@ -113,14 +113,14 @@ DeepSeek 会把带协议的用户消息原样存到服务端。刷新/切会话�
   - 主题：父页面重建 iframe 时传入主题（`data-ds-theme` + 媒体查询展开），不向 iframe 发 token。
 - 父页面路由：每个卡片随机 token + 每次 srcdoc 递增 docSeq；只接受 `event.source === iframe.contentWindow`
   且 `data.seq === docSeq` 的消息。
-- 回传落地：收到合法 sendMessage 后直接调用 `src/chat.js`：写受控 textarea → 点击发送箭头 →
+- 回传落地：默认写入草稿；直接发送模式调用 `src/chat.js`：写受控 textarea → 点击发送箭头 →
   校验输入框清空/新消息出现；失败恢复草稿。每卡片 1 分钟最多 5 次。
 
 ## 5. 协议
 
 `src/prompt.js` 的 `ZH_PROTOCOL`，核心约束：
 - 组件必须放在 ` ```dsui ` 代码块（强格式要求，实测能显著提高遵守率；DeepSeek 默认倾向输出 `html`）；
-- 一次回答可以输出多个 `dsui` 块；内容多时拆成 2-5 个，每个只专注一个交互演示；
+- 优先一个组件；仅在各部分可独立使用且无需共享状态时拆分；
 - 单文件自包含、禁外链/网络、图片 SVG/data URI/emoji；
 - 初次渲染即展示结果、避免 100vh；
 - 视觉融入对话：根节点/body 不要背景色，不要整体套卡片/外框/阴影；
@@ -130,14 +130,14 @@ DeepSeek 会把带协议的用户消息原样存到服务端。刷新/切会话�
 ## 6. 组件回传
 
 - bridge 做用户手势检查（`isTrusted` pointerdown/keydown，4s 窗口）和 1.2s 限流；
-- 父页面校验 token + docSeq 后**直接发送**，不弹确认栏；
+- 父页面校验 token + docSeq 后默认写入输入框；用户可选择直接发送；
 - 每卡片 1 分钟内最多 5 次；
 - 这是 UX 防误触，不是密码学安全边界；真正的隔离靠 iframe sandbox + CSP。
 
 ## 7. 测试
 
 - 单元：`pnpm test`（34 项：prompt 注入/剥离、深度净化、DOM 语言解析、文档构建、主题 CSS 适配、气泡清理）。
-- 离线：`pnpm test:mock`（25 项），用 `tests/mock/mock-deepseek.html` 模拟消息 DOM、流式输出、受控输入框，覆盖渲染、渐进预览、主题、节点替换、直接回传、无 seq 拒绝、导航拦截、设置面板、清理。
+- 离线：`pnpm test:mock`（26 项），用 `tests/mock/mock-deepseek.html` 模拟消息 DOM、流式输出、受控输入框，覆盖渲染、渐进预览、主题、节点替换、草稿回传、无 seq 拒绝、导航拦截、设置面板、清理。
 - 真机：`pnpm login` 一次登录后 `pnpm test:e2e`（23 项），真实账号跑：
   注入 → 模型输出 dsui → 渲染/交互/无工具栏 → 组件回传 → 指定会话刷新净化 → 主题 → 设置按钮位置。
   产物在 `test-results/`。

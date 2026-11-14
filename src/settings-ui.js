@@ -19,7 +19,7 @@ const PANEL_CSS = `
 .wrap {  position: fixed;
   right: 18px;
   bottom: 142px;
-  width: 336px;
+  width: min(336px, calc(100vw - 36px));
   max-height: min(76vh, 640px);
   overflow: auto;
   border-radius: 14px;
@@ -69,7 +69,7 @@ const TOGGLES = [
   { key: 'injectEveryTurn', label: '每轮都注入', desc: '默认关闭；开启后每轮携带协议，更耗 token' },
   { key: 'autoRender', label: '自动渲染 dsui 代码块', desc: '流式生成时实时刷新为可交互 iframe' },
   { key: 'renderPlainHtml', label: '同时渲染普通 html 完整文档', desc: '模型没按协议输出时的兜底，可能误伤代码展示' },
-  { key: 'allowWidgetSend', label: '允许组件回传消息', desc: '组件调用 dsui.sendMessage 时直接发一条对话' },
+  { key: 'allowWidgetSend', label: '允许组件回传消息', desc: '组件可把你的选择带回输入框，继续对话' },
   { key: 'showFab', label: '显示设置按钮', desc: '默认在输入框附件按钮左侧，关闭后可用油猴菜单打开' },
 ];
 
@@ -98,21 +98,36 @@ export function installSettingsUI({ getSettings }) {
         </div>
         <div class="body"></div>
         <div class="field">
-          <div class="label"><span>协议语言</span></div>
-          <select data-field="protocolLanguage">
+          <label class="label" for="dsui-visual-preference">何时生成交互界面</label>
+          <select id="dsui-visual-preference" data-field="visualPreference">
+            <option value="auto">自动判断（推荐）</option>
+            <option value="explicit">仅在我明确要求时</option>
+            <option value="frequent">更常使用图表和交互</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="dsui-widget-send-mode">组件回传方式</label>
+          <select id="dsui-widget-send-mode" data-field="widgetSendMode">
+            <option value="draft">填入输入框，由我发送（推荐）</option>
+            <option value="send">直接发送</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="dsui-protocol-language">协议语言</label>
+          <select id="dsui-protocol-language" data-field="protocolLanguage">
             <option value="zh">中文（推荐）</option>
             <option value="en">English</option>
           </select>
         </div>
         <div class="field">
-          <div class="label"><span>附加要求（可选）</span><span style="font-size:10px">会拼进协议末尾</span></div>
-          <textarea data-field="customProtocol" placeholder="例如：组件使用极简风格；优先输出 SVG 图表。"></textarea>
+          <label class="label" for="dsui-custom-protocol">呈现偏好（可选，会随协议发给 DeepSeek）</label>
+          <textarea id="dsui-custom-protocol" data-field="customProtocol" placeholder="例如：金额用人民币；默认显示月度趋势。"></textarea>
         </div>
         <div class="foot">
           <button class="btn primary" type="button" data-act="save">保存</button>
           <button class="btn" type="button" data-act="reset">恢复默认</button>
         </div>
-        <div class="hint">设置通过油猴存储保存。注入只作用于发往 DeepSeek 的请求，不修改对话显示；历史消息读取时会自动剥离注入内容。</div>
+        <div class="hint">默认在新会话的首条消息应用界面偏好。开启「每轮都注入」后，当前会话的下一条消息也会携带新设置。</div>
       </div>
     `;
 
@@ -135,6 +150,10 @@ export function installSettingsUI({ getSettings }) {
     }
 
     const langSelect = shadow.querySelector('[data-field="protocolLanguage"]');
+    const visualPreference = shadow.querySelector('[data-field="visualPreference"]');
+    visualPreference.value = settings.visualPreference;
+    const widgetSendMode = shadow.querySelector('[data-field="widgetSendMode"]');
+    widgetSendMode.value = settings.widgetSendMode;
     langSelect.value = settings.protocolLanguage === 'en' ? 'en' : 'zh';
     const custom = shadow.querySelector('[data-field="customProtocol"]');
     custom.value = settings.customProtocol || '';
@@ -154,6 +173,8 @@ export function installSettingsUI({ getSettings }) {
         input.checked = Boolean(s[input.dataset.field]);
       });
       langSelect.value = s.protocolLanguage === 'en' ? 'en' : 'zh';
+      visualPreference.value = s.visualPreference;
+      widgetSendMode.value = s.widgetSendMode;
       custom.value = s.customProtocol || '';
     };
 
@@ -163,6 +184,8 @@ export function installSettingsUI({ getSettings }) {
         next[input.dataset.field] = input.checked;
       });
       next.protocolLanguage = langSelect.value;
+      next.visualPreference = visualPreference.value;
+      next.widgetSendMode = widgetSendMode.value;
       next.customProtocol = custom.value.trim();
       return next;
     };

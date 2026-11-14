@@ -189,13 +189,17 @@ const streamStates = await page.evaluate(() =>
 );
 check('流式结束后卡片就绪', (await page.locator('.dsui-widget[data-state="ready"]').count()) === 3, JSON.stringify(streamStates));
 
-// 8) 回传消息：点击组件按钮直接发送
+// 8) 回传消息：默认先填入原生输入框
 await page.evaluate((html) => window.__dsui.mountTestWidget(html, { host: (() => { const d = document.createElement('div'); d.id = 'mock-bc-host'; document.body.appendChild(d); return d; })() }), BACKCHANNEL);
 await waitFor(async () => (await page.locator('#mock-bc-host .dsui-widget').count()) === 1, 5000);
 await page.frameLocator('#mock-bc-host iframe').locator('#send').click();
+const draft = await page.locator('textarea').first().inputValue();
+const beforeSend = await page.evaluate(() => window.__sent);
+check('回传填入草稿并等待用户发送', draft === 'MOCK_BACKCHANNEL' && !beforeSend.includes(draft), draft);
+await page.locator('#sendBtn').click();
 await page.waitForTimeout(1200);
 const sent = await page.evaluate(() => window.__sent);
-check('点击组件按钮后直接发送消息', sent.includes('MOCK_BACKCHANNEL'), JSON.stringify(sent));
+check('用户发送回传草稿', sent.includes('MOCK_BACKCHANNEL'), JSON.stringify(sent));
 
 // 9) 安全：无用户手势的自动发送应被阻止
 await page.evaluate((html) => window.__dsui.mountTestWidget(html, { host: (() => { const d = document.createElement('div'); d.id = 'mock-auto-host'; document.body.appendChild(d); return d; })() }), AUTO_SEND);

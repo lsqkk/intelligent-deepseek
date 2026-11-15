@@ -160,6 +160,29 @@ check('无结果、请求失败和坏图不占位，有效图片保留', await w
 }));
 await page.locator('[data-image-query]').evaluateAll((messages) => messages.forEach((msg) => msg.remove()));
 
+await page.evaluate(() => {
+  const { msg, block } = window.addAssistant('', { lang: 'text' });
+  msg.id = 'direct-image-fixture';
+  const base = 'https://upload.wikimedia.org/wikipedia/commons/';
+  block.outerHTML = `
+    <p id="native-image"><img src="${base}1.png" alt="小熊猫"></p>
+    <p id="bare-image"><a href="${base}2.png">${base}2.png</a></p>
+    <p id="broken-image"><a href="${base}3.png">${base}3.png</a></p>
+    <p id="named-link"><a href="${base}1.png">下载原图</a></p>
+    <p id="inline-link">图片出处：<a href="${base}2.png">${base}2.png</a></p>`;
+});
+check('原生 Markdown 图片和裸直链复用图组，并保留替代文字', await waitFor(async () =>
+  await page.locator('#native-image + .dsui-image-gallery img[alt="小熊猫"]:visible').count() === 1 &&
+  await page.locator('#bare-image + .dsui-image-gallery img:visible').count() === 1
+));
+check('坏直链静默回退，普通链接继续可见', await waitFor(async () =>
+  await page.locator('#broken-image[data-dsui-image-source]').count() === 1 &&
+  await page.locator('#broken-image + .dsui-image-gallery a').count() === 0 &&
+  await page.locator('#broken-image:visible, #broken-image + .dsui-image-gallery:visible').count() === 0 &&
+  await page.locator('#named-link:visible, #inline-link:visible').count() === 2
+));
+await page.locator('#direct-image-fixture').evaluate((msg) => msg.remove());
+
 // 1) dsui 代码块 -> 卡片
 await page.evaluate((html) => window.addAssistant(html, { lang: 'dsui' }), COMPONENT);
 const rendered = await waitFor(async () => (await page.locator('.dsui-widget').count()) === 1, 8000);

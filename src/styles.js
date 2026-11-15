@@ -4,6 +4,7 @@ export const STYLE_ID = 'dsui-global-style';
 
 const CSS = `
 .md-code-block[data-dsui-hidden="1"] { display: none !important; }
+[data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));

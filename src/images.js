@@ -13,6 +13,32 @@ export function readImageRequest(code) {
   }
 }
 
+/** Recognize a standalone Markdown image or auto-linked image URL. */
+export function readDirectImage(block) {
+  const child = block.firstElementChild;
+  if (!child || block.childElementCount !== 1) return null;
+  const image = child.matches('img') ? child : child.querySelector(':scope > img:only-child');
+  if (image && !block.textContent.trim()) {
+    const src = httpsImageUrl(image.getAttribute('src'));
+    return src && { src, href: src, title: image.getAttribute('alt') || '查看原图' };
+  }
+  if (!child.matches('a') || block.textContent.trim() !== child.textContent.trim()) return null;
+  const src = httpsImageUrl(child.getAttribute('href'));
+  if (!src || !/\.(?:avif|gif|jpe?g|png|webp)(?:$|\/)/i.test(new URL(src).pathname)) return null;
+  const label = child.textContent.trim();
+  // Preserve named links such as citations and download links.
+  if (httpsImageUrl(label) !== src) return null;
+  return { src, href: src, title: '查看原图' };
+}
+
+function httpsImageUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:' && !url.username && !url.password) return url.href;
+  } catch {}
+  return null;
+}
+
 async function requestJson(url) {
   if (typeof GM_xmlhttpRequest === 'function') {
     return new Promise((resolve, reject) => {
@@ -81,19 +107,20 @@ export class ImageGallery {
   constructor(block, request) {
     this.block = block;
     this.request = request;
+    this.key = JSON.stringify(request);
     this.el = document.createElement('div');
     this.el.className = 'dsui-image-gallery';
     this.el.hidden = true;
   }
 
   mount() {
-    this.block.setAttribute('data-dsui-hidden', '1');
+    this.block.setAttribute('data-dsui-image-source', '');
     this.block.after(this.el);
     if (this.request) this.load();
   }
 
   async load() {
-    const images = await search(this.request).catch(() => []);
+    const images = this.request.src ? [this.request] : await search(this.request).catch(() => []);
     if (this.destroyed) return;
     for (const { src, title, href } of images) {
       const link = document.createElement('a');
@@ -114,7 +141,7 @@ export class ImageGallery {
       }, { once: true });
       image.addEventListener('error', () => link.remove(), { once: true });
       const caption = document.createElement('span');
-      caption.textContent = 'Wikimedia Commons ↗';
+      caption.textContent = this.request.src ? `${new URL(src).hostname} ↗` : 'Wikimedia Commons ↗';
       frame.append(image);
       link.append(frame, caption);
       this.el.append(link);
@@ -125,6 +152,6 @@ export class ImageGallery {
   destroy() {
     this.destroyed = true;
     this.el.remove();
-    this.block.removeAttribute('data-dsui-hidden');
+    this.block.removeAttribute('data-dsui-image-source');
   }
 }

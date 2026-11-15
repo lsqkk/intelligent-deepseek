@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.3.0
+// @version      1.3.1
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -117,12 +117,14 @@ D. Blend into the conversation: do NOT set a background color on the root/body b
 E. Define theme variables --fg, --muted, --border, --accent on :root and override them for :root[data-ds-theme="dark"] (the client sets data-ds-theme on <html>; a @media (prefers-color-scheme: dark) fallback is optional).
 F. When the user needs to continue the conversation, provide a clearly labeled control that explains what will be passed back. Only after the user explicitly activates it, call window.dsui.sendMessage('text') with the selected values and units.
 G. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Keep key conclusions and assumptions in the chat and use the same language as the user. Use normal code blocks when the user only wants to read code.`;
-  var ZH_IMAGES = `H. 用户要求配图时，或图片能帮助读者辨认对象、理解背景或看清细节时，主动在相关段落之间插入 \`\`\`dsui-image 代码块，可与 dsui HTML 块并列。
+  var ZH_IMAGES = `H. 用户要求配图时，或图片能帮助读者辨认对象、理解背景或看清细节时，主动在相关段落之间配图，可与 dsui HTML 块并列。
 常见场景：介绍公众人物时配肖像（如 Ada Lovelace portrait）；解读社会热点时配背景地点或设施（如 Port of Rotterdam aerial view）；教学时配实物或结构的特写（如 monarch butterfly chrysalis close-up）；讲解景点、历史文物、动植物辨识时也可配图。热点配图仅用于说明背景，不能当作事件现场或事实证据。
-块内只写一行 JSON，例如 {"query":"red panda","count":3}。客户端从 Wikimedia Commons 搜索，实际可能显示 0 至 6 张。query 用简洁英文关键词，只写公开主题，不包含个人信息。同一主题用一个块，不同主题可分别配图。正文应在没有配图时也完整自然。不要写「我找到了」「如下图」或承诺图片数量，也不要编造图片 URL 或描述尚未看到的搜索结果。`;
-  var EN_IMAGES = `H. When requested, or when images help identify a subject, explain context, or show details, proactively put a \`\`\`dsui-image fenced block between the relevant paragraphs. It can appear alongside dsui HTML blocks.
+手头已有可靠的 HTTPS 图片直链，且已知图片确实对应主题时（例如用户提供或检索结果明确返回的图片文件），单独一段写原生 Markdown 图片 ![简短替代文字](图片直链)。图片直链指向图片文件本身。网页、文章链接和普通引用仍用普通链接。不要只贴裸 URL，也不要根据标题猜图片路径。
+只有主题、没有可靠图片直链时，用 \`\`\`dsui-image 围栏代码块，块内只写一行 JSON，例如 {"query":"red panda","count":3}。客户端在 Wikimedia Commons 搜索，可能显示 0 至 6 张。query 用简洁英文关键词，只写公开主题，不包含个人信息。同一主题用一个块，勿重复用两种方式配图。正文应在没有配图时也完整自然。不要写「我找到了」「如下图」或承诺图片数量，也不要描述尚未看到的搜索结果。`;
+  var EN_IMAGES = `H. When requested, or when images help identify a subject, explain context, or show details, proactively add them between the relevant paragraphs. Images can appear alongside dsui HTML blocks.
 Examples include a portrait in a public figure profile (Ada Lovelace portrait), a contextual location or facility in a current-events explainer (Port of Rotterdam aerial view), or a close-up in a lesson (monarch butterfly chrysalis close-up). Images can also help with landmarks, artifacts, and wildlife identification. Context images are illustrative and must not be presented as scenes from the event or evidence for a claim.
-Put only JSON inside, e.g. {"query":"red panda","count":3}. Wikimedia Commons may return zero to six usable images. Use concise English keywords for public subjects and omit personal information. Use one block per subject. Keep the text complete and natural when images are absent. Do not say you found images, refer to images below, promise a result count, invent URLs, or describe unseen results.`;
+Use a standalone native Markdown image, ![brief alt text](direct image URL), only when you already have a reliable HTTPS URL to the image itself and know it depicts the subject, such as a user-provided URL or an explicit search result. Keep articles, web pages, and citations as regular links. Do not paste bare image URLs or guess file paths.
+When you have a subject but no reliable direct image URL, use a \`\`\`dsui-image fenced block containing only JSON, e.g. {"query":"red panda","count":3}. Wikimedia Commons may return zero to six usable images. Use concise English keywords for public subjects and omit personal information. Use one block per subject and avoid duplicating images via both formats. Keep the text complete and natural when images are absent. Do not say you found images, refer to images below, promise a result count, or describe unseen results.`;
   function getProtocol(settings) {
     const en = settings?.protocolLanguage === "en";
     const base = en ? EN_PROTOCOL : ZH_PROTOCOL;
@@ -443,6 +445,7 @@ ${PROMPT_END}`;
   var STYLE_ID = "dsui-global-style";
   var CSS = `
 .md-code-block[data-dsui-hidden="1"] { display: none !important; }
+[data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
@@ -1589,6 +1592,29 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       return null;
     }
   }
+  function readDirectImage(block) {
+    const child = block.firstElementChild;
+    if (!child || block.childElementCount !== 1) return null;
+    const image = child.matches("img") ? child : child.querySelector(":scope > img:only-child");
+    if (image && !block.textContent.trim()) {
+      const src2 = httpsImageUrl(image.getAttribute("src"));
+      return src2 && { src: src2, href: src2, title: image.getAttribute("alt") || "查看原图" };
+    }
+    if (!child.matches("a") || block.textContent.trim() !== child.textContent.trim()) return null;
+    const src = httpsImageUrl(child.getAttribute("href"));
+    if (!src || !/\.(?:avif|gif|jpe?g|png|webp)(?:$|\/)/i.test(new URL(src).pathname)) return null;
+    const label = child.textContent.trim();
+    if (httpsImageUrl(label) !== src) return null;
+    return { src, href: src, title: "查看原图" };
+  }
+  function httpsImageUrl(value) {
+    try {
+      const url = new URL(value);
+      if (url.protocol === "https:" && !url.username && !url.password) return url.href;
+    } catch {
+    }
+    return null;
+  }
   async function requestJson(url) {
     if (typeof GM_xmlhttpRequest === "function") {
       return new Promise((resolve, reject) => {
@@ -1668,17 +1694,18 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     constructor(block, request) {
       this.block = block;
       this.request = request;
+      this.key = JSON.stringify(request);
       this.el = document.createElement("div");
       this.el.className = "dsui-image-gallery";
       this.el.hidden = true;
     }
     mount() {
-      this.block.setAttribute("data-dsui-hidden", "1");
+      this.block.setAttribute("data-dsui-image-source", "");
       this.block.after(this.el);
       if (this.request) this.load();
     }
     async load() {
-      const images = await search(this.request).catch(() => []);
+      const images = this.request.src ? [this.request] : await search(this.request).catch(() => []);
       if (this.destroyed) return;
       for (const { src, title, href } of images) {
         const link = document.createElement("a");
@@ -1699,7 +1726,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         }, { once: true });
         image.addEventListener("error", () => link.remove(), { once: true });
         const caption = document.createElement("span");
-        caption.textContent = "Wikimedia Commons ↗";
+        caption.textContent = this.request.src ? `${new URL(src).hostname} ↗` : "Wikimedia Commons ↗";
         frame.append(image);
         link.append(frame, caption);
         this.el.append(link);
@@ -1709,7 +1736,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     destroy() {
       this.destroyed = true;
       this.el.remove();
-      this.block.removeAttribute("data-dsui-hidden");
+      this.block.removeAttribute("data-dsui-image-source");
     }
   };
 
@@ -1743,19 +1770,24 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         return;
       }
       const seen = /* @__PURE__ */ new Set();
+      const renderImages = (block, request) => {
+        seen.add(block);
+        const current = widgets.get(block);
+        if (current instanceof ImageGallery && current.el.isConnected && current.key === JSON.stringify(request)) return;
+        current?.destroy();
+        const gallery = new ImageGallery(block, request);
+        widgets.set(block, gallery);
+        gallery.mount();
+      };
       for (const root of findAssistantRoots(document)) {
+        for (const block of root.querySelectorAll("p")) {
+          const request = readDirectImage(block);
+          if (request) renderImages(block, request);
+        }
         for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
           const lang = readLang(block);
           if (lang === "dsui-image") {
-            const request = readImageRequest(readCode(block));
-            const current = widgets.get(block);
-            if (!(current instanceof ImageGallery) || !current.el.isConnected || current.request?.query !== request?.query || current.request?.count !== request?.count) {
-              current?.destroy();
-              const gallery = new ImageGallery(block, request);
-              widgets.set(block, gallery);
-              gallery.mount();
-            }
-            seen.add(block);
+            renderImages(block, readImageRequest(readCode(block)));
             continue;
           }
           if (!shouldRenderBlock(block, settings)) {
@@ -1833,7 +1865,12 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     observer = new MutationObserver(scheduleScan);
     const observe = () => {
       if (document.body) {
-        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributeFilter: ["src", "href", "alt"]
+        });
         scheduleScan();
       } else {
         document.addEventListener("DOMContentLoaded", observe, { once: true });
@@ -1946,7 +1983,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.3.0";
+  var VERSION = false ? "dev" : "1.3.1";
   var TOGGLES = [
     { key: "enabled", label: "启用 Intelligent UI", desc: "总开关：关闭后不注入、不渲染" },
     { key: "injectPrompt", label: "自动注入界面协议", desc: "新会话首条消息注入一次（推荐）" },
@@ -2161,7 +2198,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.3.0", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.3.1", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -2190,7 +2227,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.3.0",
+      version: "1.3.1",
       getSettings,
       saveSettings,
       resetSettings: () => {
@@ -2204,7 +2241,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.3.0",
+          version: "1.3.1",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

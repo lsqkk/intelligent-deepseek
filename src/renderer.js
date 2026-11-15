@@ -6,7 +6,7 @@ import { PROMPT_END, PROMPT_START } from './prompt.js';
 import { findAssistantRoots, readCode, readLang, shouldRenderBlock, SELECTORS } from './dom.js';
 import { Widget, installWidgetMessageRouter, applyThemeToAll } from './widget.js';
 import { detectTheme, watchTheme } from './theme.js';
-import { ImageGallery, readImageRequest } from './images.js';
+import { ImageGallery, readDirectImage, readImageRequest } from './images.js';
 
 const SCAN_DEBOUNCE_MS = 90;
 
@@ -42,20 +42,24 @@ export function startRenderer({ getSettings, onToast }) {
     }
 
     const seen = new Set();
+    const renderImages = (block, request) => {
+      seen.add(block);
+      const current = widgets.get(block);
+      if (current instanceof ImageGallery && current.el.isConnected && current.key === JSON.stringify(request)) return;
+      current?.destroy();
+      const gallery = new ImageGallery(block, request);
+      widgets.set(block, gallery);
+      gallery.mount();
+    };
     for (const root of findAssistantRoots(document)) {
+      for (const block of root.querySelectorAll('p')) {
+        const request = readDirectImage(block);
+        if (request) renderImages(block, request);
+      }
       for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
         const lang = readLang(block);
         if (lang === 'dsui-image') {
-          const request = readImageRequest(readCode(block));
-          const current = widgets.get(block);
-          if (!(current instanceof ImageGallery) || !current.el.isConnected ||
-              current.request?.query !== request?.query || current.request?.count !== request?.count) {
-            current?.destroy();
-            const gallery = new ImageGallery(block, request);
-            widgets.set(block, gallery);
-            gallery.mount();
-          }
-          seen.add(block);
+          renderImages(block, readImageRequest(readCode(block)));
           continue;
         }
         if (!shouldRenderBlock(block, settings)) {
@@ -146,7 +150,9 @@ export function startRenderer({ getSettings, onToast }) {
   observer = new MutationObserver(scheduleScan);
   const observe = () => {
     if (document.body) {
-      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      observer.observe(document.body, {
+        childList: true, subtree: true, characterData: true, attributeFilter: ['src', 'href', 'alt'],
+      });
       scheduleScan();
     } else {
       document.addEventListener('DOMContentLoaded', observe, { once: true });

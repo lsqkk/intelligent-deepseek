@@ -1,7 +1,7 @@
 {
   "name": "intelligent-deepseek",
   "private": true,
-  "version": "1.5.2",
+  "version": "1.5.5",
   "type": "module",
   "description": "Tampermonkey userscript that brings GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com",
   "scripts": {

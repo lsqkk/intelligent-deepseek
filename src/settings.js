@@ -8,7 +8,6 @@ const STORAGE_KEY = '__dsui_settings_v1';
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   injectEveryTurn: false,
-  tableFullWidth: true,
   tableSort: true,
   tableExport: true,
   inlineImages: true,
@@ -24,7 +23,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   debug: false,
 });
 
-const PROTOCOL_FIELDS = ['inlineImages', 'weatherCards', 'mapCards', 'protocolLanguage', 'visualPreference', 'customProtocol'];
+const PROTOCOL_FIELDS = ['protocolLanguage', 'visualPreference', 'customProtocol'];
 
 function gmGet(key) {
   try {

@@ -3,8 +3,7 @@
 export const STYLE_ID = 'dsui-global-style';
 
 const CSS = __DS_LEAFLET_CSS__ + `
-.md-code-block[data-dsui-hidden="1"],
-.md-code-block[data-dsui-feature-hidden] { display: none !important; }
+.md-code-block[data-dsui-hidden="1"] { display: none !important; }
 [data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
   display: grid;
@@ -34,23 +33,6 @@ const CSS = __DS_LEAFLET_CSS__ + `
 }
 .dsui-image-gallery > a > span { display: block; margin-top: 5px; }
 
-.ds-markdown .dsui-table-scroll {
-  /* Override the site's intrinsic width and keep any overflow local to the table. */
-  display: block !important;
-  box-sizing: border-box;
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: 100% !important;
-  align-self: stretch;
-  contain: inline-size;
-  overflow-x: auto !important;
-}
-.ds-markdown .dsui-table-scroll > table.dsui-table {
-  display: table !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: none !important;
-}
 .dsui-table-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-bottom: 4px; min-width: 0; max-width: 100%; }
 .dsui-table-tools button:disabled { opacity: .5; cursor: wait; }
 .dsui-table-tools button,

@@ -8,47 +8,49 @@
 import { applyInjection } from './prompt.js';
 import { sanitizeDeep, sanitizeJsonText } from './sanitize.js';
 import { getPageWindow } from './env.js';
+import { DEFAULT_SETTINGS } from './settings.js';
 
 const COMPLETION_URLS = ['/api/v0/chat/completion', '/api/v0/chat/edit_message'];
 const HISTORY_URLS = ['/api/v0/chat/history_messages', '/api/v0/share/content'];
 const INJECTED_KEY = '__dsui_injected_sessions_v1';
-const MAX_TRACKED_SESSIONS = 100;
 
 let installed = false;
-let injectedSessions = loadInjectedSessions();
+let pendingInjectedSessions = {};
 
 function loadInjectedSessions() {
   try {
     const raw = localStorage.getItem(INJECTED_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+    if (parsed && typeof parsed === 'object') return { ...parsed, ...pendingInjectedSessions };
+  } catch {}
+  return { ...pendingInjectedSessions };
 }
 
-function markSessionInjected(sessionId, revision) {
+function markSessionInjected(sessionId, { protocolRevision, inlineImages, weatherCards, mapCards }, sessions) {
   if (!sessionId) return;
-  Object.defineProperty(injectedSessions, sessionId, {
-    value: { at: Date.now(), revision }, enumerable: true, configurable: true, writable: true,
-  });
-  const keys = Object.keys(injectedSessions);
-  if (keys.length > MAX_TRACKED_SESSIONS) {
-    keys
-      .sort((a, b) => (injectedSessions[a]?.at ?? injectedSessions[a]) - (injectedSessions[b]?.at ?? injectedSessions[b]))
-      .slice(0, keys.length - MAX_TRACKED_SESSIONS)
-      .forEach((key) => delete injectedSessions[key]);
-  }
+  const injectedSessions = {
+    ...sessions,
+    [sessionId]: {
+      revision: protocolRevision ?? 0,
+      cards: { inlineImages, weatherCards, mapCards },
+    },
+  };
   try {
     localStorage.setItem(INJECTED_KEY, JSON.stringify(injectedSessions));
-  } catch {}
+    pendingInjectedSessions = {};
+  } catch {
+    pendingInjectedSessions = injectedSessions;
+  }
 }
 
-/** 首轮注入；影响协议的设置有变动时，在下一轮更新一次。 */
-export function shouldInjectPrompt(settings, sessionId, injected = injectedSessions) {
+/** 首轮注入；会话内可更新界面偏好，卡片能力以首轮为准。 */
+export function shouldInjectPrompt(settings, sessionId, injected) {
   if (!settings?.enabled) return false;
   if (settings.injectEveryTurn) return true;
-  if (!sessionId || !Object.hasOwn(injected, sessionId)) return true;
+  if (!sessionId) return true;
+  // 另一个标签页可能在本页打开之后就已发出协议。
+  injected ??= loadInjectedSessions();
+  if (!Object.hasOwn(injected, sessionId)) return true;
   return (injected[sessionId]?.revision ?? 0) !== (settings.protocolRevision ?? 0);
 }
 
@@ -260,11 +262,19 @@ function injectIntoJsonBody(body, settings) {
   }
   if (!parsed || typeof parsed !== 'object' || typeof parsed.prompt !== 'string') return body;
   const sessionId = typeof parsed.chat_session_id === 'string' ? parsed.chat_session_id : '';
-  if (!shouldInjectPrompt(settings, sessionId)) return body;
-  const nextPrompt = applyInjection(parsed.prompt, settings);
+  const sessions = sessionId ? loadInjectedSessions() : {};
+  if (!shouldInjectPrompt(settings, sessionId, sessions)) return body;
+  let protocolSettings = settings;
+  if (sessionId && Object.hasOwn(sessions, sessionId)) {
+    // 旧版本只记录是否已注入，沿用默认支持的三种卡片。
+    const cards = sessions[sessionId]?.cards ?? DEFAULT_SETTINGS;
+    const { inlineImages, weatherCards, mapCards } = cards;
+    protocolSettings = { ...settings, inlineImages, weatherCards, mapCards };
+  }
+  const nextPrompt = applyInjection(parsed.prompt, protocolSettings);
   if (nextPrompt === parsed.prompt) return body;
   parsed.prompt = nextPrompt;
-  markSessionInjected(sessionId, settings.protocolRevision ?? 0);
+  markSessionInjected(sessionId, protocolSettings, sessions);
   try {
     const pageWindow = getPageWindow();
     pageWindow.__dsuiInjectedCount = (pageWindow.__dsuiInjectedCount || 0) + 1;

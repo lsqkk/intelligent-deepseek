@@ -191,11 +191,12 @@ await page.evaluate(() => {
   });
   const { msg, block } = window.addAssistant('', { lang: 'text' });
   msg.id = 'table-fixture';
-  block.outerHTML = `<div style="max-width:220px"><div class="ds-scroll-area"><table>
+  msg.style.maxWidth = '220px';
+  block.outerHTML = `<div class="ds-scroll-area" style="overflow-x:auto"><table>
     <thead><tr><th style="min-width:170px">方案</th><th style="min-width:160px">变化</th></tr></thead>
     <tbody><tr><td>方案 "甲", A</td><td>12.5%</td></tr>
     <tr><td>=1+2</td><td>-2%</td></tr><tr><td>方案丙</td><td></td></tr></tbody>
-  </table></div></div>`;
+  </table></div>`;
 });
 const tableMessage = page.locator('#table-fixture');
 const table = tableMessage.locator('table');
@@ -241,45 +242,36 @@ await tableMessage.evaluate((msg) => msg.remove());
 
 await page.evaluate(() => {
   const { msg, block } = window.addAssistant('', { lang: 'text' });
-  msg.id = 'narrow-table';
-  block.outerHTML = `<div class="ds-scroll-area" style="display:inline-block;width:max-content">
-    <table style="display:block;width:max-content;max-width:260px">
-    <thead><tr><th>甲</th><th>乙</th></tr></thead><tbody><tr><td>A</td><td>B</td></tr></tbody></table></div>`;
+  msg.id = 'native-table-layout';
+  block.outerHTML = `<div class="ds-scroll-area" style="width:260px;overflow-x:auto">
+    <div style="width:max-content"><table>
+      <thead><tr><th>甲</th><th>乙</th></tr></thead><tbody><tr><td>A</td><td>B</td></tr></tbody>
+    </table></div></div>`;
 });
-const narrow = page.locator('#narrow-table');
-const fillsReply = () => narrow.locator('table').evaluate((el) => {
-  if (!el.classList.contains('dsui-table')) return false;
-  const box = el.getBoundingClientRect();
-  const column = el.tHead.rows[0].cells[1].getBoundingClientRect();
-  const reply = el.closest('.ds-markdown').getBoundingClientRect();
-  return Math.abs(box.width - reply.width) <= 1 && (column.left - box.left) / box.width > 0.4;
+const nativeTable = page.locator('#native-table-layout');
+const usesNativeLayout = () => nativeTable.locator('table').evaluate((table) => {
+  const scroller = table.closest('.ds-scroll-area');
+  return scroller.clientWidth === 260 && table.getBoundingClientRect().width < 260 &&
+    getComputedStyle(scroller).overflowX === 'auto' && table.parentElement.parentElement === scroller;
 });
-check('覆盖网站表格宽度限制，表格铺满正文', await waitFor(fillsReply));
-await page.setViewportSize({ width: 420, height: 700 });
-check('窄屏也铺满正文，页面没有横向溢出', await waitFor(fillsReply) &&
-  await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
-await page.setViewportSize({ width: 1200, height: 900 });
-
 await page.locator('#dsui-fab').click();
 const setting = (key) => page.locator(`#dsui-settings-host [data-field="${key}"]`);
+check('表格保留原生宽度和滚动布局，设置中已移除铺满选项', await usesNativeLayout() &&
+  await setting('tableFullWidth').count() === 0);
 await setting('tableExport').uncheck();
-check('关闭表格工具栏即时生效，宽度和排序仍开启', await waitFor(async () =>
-  await narrow.locator('.dsui-table-tools').count() === 0 && await fillsReply() &&
-  await narrow.locator('.dsui-table-sort').count() === 2));
+check('关闭表格工具栏即时生效，排序仍开启', await waitFor(async () =>
+  await nativeTable.locator('.dsui-table-tools').count() === 0 &&
+  await nativeTable.locator('.dsui-table-sort').count() === 2));
 await setting('tableSort').uncheck();
-check('关闭排序即时生效，保留铺满布局', await waitFor(async () =>
-  await narrow.locator('.dsui-table-sort').count() === 0 && await fillsReply()));
-await setting('tableFullWidth').uncheck();
-check('关闭铺满后恢复网站表格布局，弹窗保持打开', await waitFor(async () =>
-  await narrow.locator('table').evaluate((el) => getComputedStyle(el).display === 'block' &&
-    el.getBoundingClientRect().width <= 260) && await setting('tableFullWidth').isVisible()));
+check('关闭排序即时生效，原生布局保持可用', await waitFor(async () =>
+  await nativeTable.locator('.dsui-table-sort').count() === 0 && await usesNativeLayout()));
 await page.locator('#dsui-settings-host [data-act="reset"]').click();
 // 当前 mock 的其他检查需要普通 HTML 兜底。
 await setting('renderPlainHtml').check();
-check('恢复默认即时重新启用表格功能', await waitFor(async () => await fillsReply() &&
-  await narrow.locator('.dsui-table-tools').count() === 1 && await narrow.locator('.dsui-table-sort').count() === 2));
+check('恢复默认即时重新启用排序和导出', await waitFor(async () => await usesNativeLayout() &&
+  await nativeTable.locator('.dsui-table-tools').count() === 1 && await nativeTable.locator('.dsui-table-sort').count() === 2));
 await page.keyboard.press('Escape');
-await narrow.evaluate((msg) => msg.remove());
+await nativeTable.evaluate((msg) => msg.remove());
 
 let weatherLookups = 0;
 await page.route('https://geocoding-api.open-meteo.com/v1/search?*', (route) => {
@@ -397,22 +389,36 @@ await page.evaluate(() => {
 });
 const toggledGallery = page.locator('#image-toggle .dsui-image-gallery');
 await toggledGallery.waitFor({ state: 'visible' });
+const completionUrl = 'https://mock-deepseek.invalid/api/v0/chat/completion';
+await page.route(completionUrl, (route) => route.fulfill({
+  headers: { 'access-control-allow-origin': '*' },
+  json: route.request().postDataJSON(),
+}));
+const sendMockPrompt = (chat_session_id) => page.evaluate(async ({ url, chat_session_id }) => {
+  const response = await fetch(url, {
+    method: 'POST',
+    body: JSON.stringify({ chat_session_id, prompt: '你好' }),
+  });
+  return (await response.json()).prompt;
+}, { url: completionUrl, chat_session_id });
+const firstPrompt = await sendMockPrompt('cards-enabled');
+const cardCommandsDisabled = (prompt) => ['dsui-image', 'dsui-weather', 'dsui-map']
+  .every((lang) => prompt.includes(`不要输出 ${lang} 块`));
+
 await page.locator('#dsui-fab').click();
 await setting('weatherCards').uncheck();
-check('关闭天气即时移除卡片，地图和配图不受影响', await waitFor(async () =>
-  await weather.count() === 0 && await map.locator('.dsui-map').isVisible() && await toggledGallery.isVisible()));
 await setting('inlineImages').uncheck();
 await setting('mapCards').uncheck();
-check('关闭配图和地图后隐藏已有卡片及其内部协议块', await waitFor(async () =>
-  await toggledGallery.count() === 0 && await map.locator('.dsui-map').count() === 0 &&
-  await page.locator('#image-toggle .md-code-block, #map-card .md-code-block, #weather-card .md-code-block')
-    .evaluateAll((blocks) => blocks.length === 3 && blocks.every((block) => getComputedStyle(block).display === 'none'))));
+check('改卡片偏好后，已注入会话的下一轮不重复注入', firstPrompt.includes('⟦DS-UI v1⟧') &&
+  await sendMockPrompt('cards-enabled') === '你好');
+const newChatPrompt = await sendMockPrompt('cards-disabled');
+check('新会话首轮使用关闭卡片后的偏好', cardCommandsDisabled(newChatPrompt));
 await setting('customProtocol').fill('优先使用人民币');
-check('逐字输入的偏好无需失焦即可用于下一条消息', await page.evaluate(() => {
-  const prompt = window.__dsui.previewInjection('你好');
-  return prompt.includes('优先使用人民币') && prompt.includes('不要输出 dsui-image 块') &&
-    prompt.includes('不要输出 dsui-weather 块') && prompt.includes('不要输出 dsui-map 块');
-}));
+const refreshedPrompt = await sendMockPrompt('cards-enabled');
+check('当前会话更新文本偏好时，保留首轮的三种卡片指令',
+  refreshedPrompt === firstPrompt.replace('\n⟦/DS-UI⟧', '\n附加呈现偏好（以本轮要求和组件约束为准）\n优先使用人民币\n⟦/DS-UI⟧'));
+check('更新偏好后现有卡片继续显示', await weather.isVisible() &&
+  await map.locator('.dsui-map').isVisible() && await toggledGallery.isVisible());
 await page.keyboard.press('Escape');
 await page.locator('#dsui-fab').click();
 check('重新打开保留修改，面板隐藏滚动条且可滚动',
@@ -425,8 +431,11 @@ check('重新打开保留修改，面板隐藏滚动条且可滚动',
 await setting('weatherCards').check();
 await setting('inlineImages').check();
 await setting('mapCards').check();
-check('重新开启后不用刷新即可恢复已有卡片', await waitFor(async () =>
-  await weather.isVisible() && await toggledGallery.isVisible() && await map.locator('.dsui-map').isVisible()));
+await setting('injectEveryTurn').check();
+check('每轮注入也分别沿用各会话首轮的卡片设置',
+  cardCommandsDisabled(await sendMockPrompt('cards-disabled')) &&
+  await sendMockPrompt('cards-enabled') === refreshedPrompt);
+await setting('injectEveryTurn').uncheck();
 await page.keyboard.press('Escape');
 await page.locator('#image-toggle').evaluate((msg) => msg.remove());
 await page.locator('#weather-card, #no-weather, #map-card, #map-offline, #map-keywords, #map-keywords-cache')

@@ -29,4 +29,16 @@ describe('prompt injection policy', () => {
   it('injects when the session id is unknown', () => {
     expect(shouldInjectPrompt(base, '', {})).toBe(true);
   });
+
+  it('reads injection records written after this tab has loaded', () => {
+    const key = '__dsui_injected_sessions_v1';
+    expect(shouldInjectPrompt(base, 'shared-chat')).toBe(true);
+    localStorage.setItem(key, JSON.stringify({ 'shared-chat': { at: Date.now(), revision: 0 } }));
+    try {
+      expect(shouldInjectPrompt(base, 'shared-chat')).toBe(false);
+      expect(shouldInjectPrompt({ ...base, protocolRevision: 1 }, 'shared-chat')).toBe(true);
+    } finally {
+      localStorage.removeItem(key);
+    }
+  });
 });

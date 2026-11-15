@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.5.2
+// @version      1.5.5
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -33374,7 +33374,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     injectEveryTurn: false,
-    tableFullWidth: true,
     tableSort: true,
     tableExport: true,
     inlineImages: true,
@@ -33389,7 +33388,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     protocolRevision: 0,
     debug: false
   });
-  var PROTOCOL_FIELDS = ["inlineImages", "weatherCards", "mapCards", "protocolLanguage", "visualPreference", "customProtocol"];
+  var PROTOCOL_FIELDS = ["protocolLanguage", "visualPreference", "customProtocol"];
   function gmGet(key) {
     try {
       if (typeof GM_getValue === "function") return GM_getValue(key);
@@ -33577,39 +33576,39 @@ ${PROMPT_END}`;
   var COMPLETION_URLS = ["/api/v0/chat/completion", "/api/v0/chat/edit_message"];
   var HISTORY_URLS = ["/api/v0/chat/history_messages", "/api/v0/share/content"];
   var INJECTED_KEY = "__dsui_injected_sessions_v1";
-  var MAX_TRACKED_SESSIONS = 100;
   var installed = false;
-  var injectedSessions = loadInjectedSessions();
+  var pendingInjectedSessions = {};
   function loadInjectedSessions() {
     try {
       const raw = localStorage.getItem(INJECTED_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
-      return parsed && typeof parsed === "object" ? parsed : {};
+      if (parsed && typeof parsed === "object") return { ...parsed, ...pendingInjectedSessions };
     } catch {
-      return {};
     }
+    return { ...pendingInjectedSessions };
   }
-  function markSessionInjected(sessionId, revision) {
+  function markSessionInjected(sessionId, { protocolRevision, inlineImages, weatherCards, mapCards }, sessions) {
     if (!sessionId) return;
-    Object.defineProperty(injectedSessions, sessionId, {
-      value: { at: Date.now(), revision },
-      enumerable: true,
-      configurable: true,
-      writable: true
-    });
-    const keys = Object.keys(injectedSessions);
-    if (keys.length > MAX_TRACKED_SESSIONS) {
-      keys.sort((a, b) => (injectedSessions[a]?.at ?? injectedSessions[a]) - (injectedSessions[b]?.at ?? injectedSessions[b])).slice(0, keys.length - MAX_TRACKED_SESSIONS).forEach((key) => delete injectedSessions[key]);
-    }
+    const injectedSessions = {
+      ...sessions,
+      [sessionId]: {
+        revision: protocolRevision ?? 0,
+        cards: { inlineImages, weatherCards, mapCards }
+      }
+    };
     try {
       localStorage.setItem(INJECTED_KEY, JSON.stringify(injectedSessions));
+      pendingInjectedSessions = {};
     } catch {
+      pendingInjectedSessions = injectedSessions;
     }
   }
-  function shouldInjectPrompt(settings, sessionId, injected = injectedSessions) {
+  function shouldInjectPrompt(settings, sessionId, injected) {
     if (!settings?.enabled) return false;
     if (settings.injectEveryTurn) return true;
-    if (!sessionId || !Object.hasOwn(injected, sessionId)) return true;
+    if (!sessionId) return true;
+    injected ??= loadInjectedSessions();
+    if (!Object.hasOwn(injected, sessionId)) return true;
     return (injected[sessionId]?.revision ?? 0) !== (settings.protocolRevision ?? 0);
   }
   function installInterceptors(getSettings2) {
@@ -33789,11 +33788,18 @@ ${PROMPT_END}`;
     }
     if (!parsed || typeof parsed !== "object" || typeof parsed.prompt !== "string") return body;
     const sessionId = typeof parsed.chat_session_id === "string" ? parsed.chat_session_id : "";
-    if (!shouldInjectPrompt(settings, sessionId)) return body;
-    const nextPrompt = applyInjection(parsed.prompt, settings);
+    const sessions = sessionId ? loadInjectedSessions() : {};
+    if (!shouldInjectPrompt(settings, sessionId, sessions)) return body;
+    let protocolSettings = settings;
+    if (sessionId && Object.hasOwn(sessions, sessionId)) {
+      const cards = sessions[sessionId]?.cards ?? DEFAULT_SETTINGS;
+      const { inlineImages, weatherCards, mapCards } = cards;
+      protocolSettings = { ...settings, inlineImages, weatherCards, mapCards };
+    }
+    const nextPrompt = applyInjection(parsed.prompt, protocolSettings);
     if (nextPrompt === parsed.prompt) return body;
     parsed.prompt = nextPrompt;
-    markSessionInjected(sessionId, settings.protocolRevision ?? 0);
+    markSessionInjected(sessionId, protocolSettings, sessions);
     try {
       const pageWindow = getPageWindow();
       pageWindow.__dsuiInjectedCount = (pageWindow.__dsuiInjectedCount || 0) + 1;
@@ -34472,8 +34478,7 @@ svg.leaflet-image-layer.leaflet-interactive path {\r
 		}\r
 	}\r
 
-.md-code-block[data-dsui-hidden="1"],
-.md-code-block[data-dsui-feature-hidden] { display: none !important; }
+.md-code-block[data-dsui-hidden="1"] { display: none !important; }
 [data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
   display: grid;
@@ -34503,23 +34508,6 @@ svg.leaflet-image-layer.leaflet-interactive path {\r
 }
 .dsui-image-gallery > a > span { display: block; margin-top: 5px; }
 
-.ds-markdown .dsui-table-scroll {
-  /* Override the site's intrinsic width and keep any overflow local to the table. */
-  display: block !important;
-  box-sizing: border-box;
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: 100% !important;
-  align-self: stretch;
-  contain: inline-size;
-  overflow-x: auto !important;
-}
-.ds-markdown .dsui-table-scroll > table.dsui-table {
-  display: table !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: none !important;
-}
 .dsui-table-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-bottom: 4px; min-width: 0; max-width: 100%; }
 .dsui-table-tools button:disabled { opacity: .5; cursor: wait; }
 .dsui-table-tools button,
@@ -35950,37 +35938,15 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         }
       }));
     }
-    syncLayout(fullWidth, showToolbar) {
-      const table = this.table;
-      if (!fullWidth || this.scroller !== table.parentElement) {
-        this.clearLayout();
-        if (fullWidth) {
-          this.scroller = this.nativeScroller();
-          if (!this.scroller) {
-            this.wrapper = this.scroller = document.createElement("div");
-            table.before(this.wrapper);
-            this.wrapper.append(table);
-          }
-          this.scroller.classList.add("dsui-table-scroll");
-          table.classList.add("dsui-table");
-        }
+    toolbarAnchor() {
+      let child = this.table;
+      for (let parent = child.parentElement; parent?.matches("div:not(.ds-markdown)"); parent = child.parentElement) {
+        const wrapsOnlyTable = [...parent.childNodes].every((node) => node === child || node === this.bar || node.nodeType === 8 || node.nodeType === 3 && !node.textContent.trim());
+        const nativeScroller = parent.matches(".ds-scroll-area") && parent.querySelectorAll("table").length === 1;
+        if (!wrapsOnlyTable && !nativeScroller) break;
+        child = parent;
       }
-      const anchor = this.scroller || this.nativeScroller() || table;
-      if (!showToolbar) this.bar.remove();
-      else if (this.bar.nextElementSibling !== anchor) anchor.before(this.bar);
-    }
-    nativeScroller() {
-      const parent = this.table.parentElement;
-      return parent.matches(".ds-scroll-area") || parent.matches("div:not(.ds-markdown)") && parent.childElementCount === 1 ? parent : null;
-    }
-    clearLayout() {
-      this.table.classList.remove("dsui-table");
-      this.scroller?.classList.remove("dsui-table-scroll");
-      if (this.wrapper?.parentNode) {
-        if (this.table.parentNode === this.wrapper) this.wrapper.before(this.table);
-        this.wrapper.remove();
-      }
-      this.scroller = this.wrapper = null;
+      return child;
     }
     action(label, run) {
       const button = document.createElement("button");
@@ -35989,8 +35955,13 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       button.addEventListener("click", run);
       return button;
     }
-    refresh({ tableFullWidth, tableExport, tableSort }) {
-      this.syncLayout(tableFullWidth, tableExport);
+    refresh({ tableExport, tableSort }) {
+      if (tableExport) {
+        const anchor = this.toolbarAnchor();
+        if (this.bar.nextElementSibling !== anchor) anchor.before(this.bar);
+      } else {
+        this.bar.remove();
+      }
       const columns = tableSort ? sortableColumns(this.table) : [];
       for (const [cell, button] of this.headers) {
         if (columns.includes(cell) && button.parentNode === cell) continue;
@@ -36062,7 +36033,6 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       this.resetSort();
       for (const button of this.headers.values()) button.remove();
       this.bar.remove();
-      this.clearLayout();
     }
   };
 
@@ -36449,7 +36419,6 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     installWidgetMessageRouter();
     const widgets = /* @__PURE__ */ new Map();
     const tables = /* @__PURE__ */ new Map();
-    let hiddenFeatures = /* @__PURE__ */ new Set();
     let theme = detectTheme();
     let scanTimer = null;
     let observer = null;
@@ -36475,8 +36444,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       }
       const seen = /* @__PURE__ */ new Set();
       const seenTables = /* @__PURE__ */ new Set();
-      const disabledBlocks = /* @__PURE__ */ new Set();
-      const enhanceTables = settings.tableFullWidth || settings.tableSort || settings.tableExport;
+      const enhanceTables = settings.tableSort || settings.tableExport;
       const renderCard = (block, Card, request) => {
         seen.add(block);
         const current = widgets.get(block);
@@ -36495,21 +36463,14 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
             tables.get(table).refresh(settings);
           }
         }
-        if (settings.inlineImages) {
-          for (const block of root.querySelectorAll("p")) {
-            const request = readDirectImage(block);
-            if (request) renderCard(block, ImageGallery, request);
-          }
+        for (const block of root.querySelectorAll("p")) {
+          const request = readDirectImage(block);
+          if (request) renderCard(block, ImageGallery, request);
         }
         for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
           const lang = readLang(block);
           if (lang === "dsui-image") {
-            if (settings.inlineImages) renderCard(block, ImageGallery, readImageRequest(readCode(block)));
-            else disabledBlocks.add(block);
-            continue;
-          }
-          if (lang === "dsui-weather" && !settings.weatherCards || lang === "dsui-map" && !settings.mapCards) {
-            disabledBlocks.add(block);
+            renderCard(block, ImageGallery, readImageRequest(readCode(block)));
             continue;
           }
           const dataCard = readDataCard(lang, readCode(block));
@@ -36559,7 +36520,6 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
           widgets.delete(block);
         }
       }
-      syncHiddenFeatures(disabledBlocks);
       cleanInjectedUserBubbles();
     };
     const adoptAdjacentWidget = (block) => {
@@ -36581,13 +36541,6 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       }
       return null;
     };
-    const syncHiddenFeatures = (next) => {
-      for (const block of hiddenFeatures) {
-        if (!next.has(block)) block.removeAttribute("data-dsui-feature-hidden");
-      }
-      for (const block of next) block.setAttribute("data-dsui-feature-hidden", "");
-      hiddenFeatures = next;
-    };
     const teardownAll = () => {
       for (const tools of tables.values()) tools.destroy();
       tables.clear();
@@ -36596,7 +36549,6 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         widgets.delete(block);
         if (block?.isConnected) block.removeAttribute("data-dsui-hidden");
       }
-      syncHiddenFeatures(/* @__PURE__ */ new Set());
     };
     const stopTheme = watchTheme((next) => {
       theme = next;
@@ -36729,7 +36681,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.5.2";
+  var VERSION = false ? "dev" : "1.5.5";
   var GROUPS = [
     ["常规", [
       ["enabled", "启用 Intelligent UI", "自动注入界面协议并渲染交互组件"],
@@ -36738,11 +36690,10 @@ select:focus, textarea:focus { border-color: var(--accent); }
       ["allowWidgetSend", "允许组件回传消息", "组件可把你的选择带回输入框"]
     ]],
     ["表格", [
-      ["tableFullWidth", "表格铺满回答区域", "超宽表格可横向滚动"],
       ["tableSort", "按列排序", "点击表头切换升序、降序和原始顺序"],
       ["tableExport", "复制和下载表格", "提供复制、CSV 和 XLSX"]
     ]],
-    ["回答内卡片", [
+    ["新会话的回答内卡片", [
       ["inlineImages", "回答内配图", "预览图片直链，或从 Wikimedia Commons 获取配图"],
       ["weatherCards", "天气卡片", "显示实时天气与预报"],
       ["mapCards", "地图卡片", "在地图上展示地点和路线入口"]
@@ -36799,7 +36750,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
         <div class="foot">
           <button class="btn" type="button" data-act="reset">恢复默认</button>
         </div>
-        <div class="hint">改动即时保存；界面偏好在下一条消息发送时应用。</div>
+        <div class="hint">改动即时保存。卡片选项用于新会话的首轮协议，已生成的卡片照常显示。其他界面偏好从下一条消息起应用。</div>
       </div>
     `;
       const body = shadow.querySelector(".body");
@@ -36906,7 +36857,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.5.2", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.5.5", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -36925,7 +36876,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.5.2",
+      version: "1.5.5",
       getSettings,
       saveSettings,
       resetSettings: () => saveSettings(DEFAULT_SETTINGS),
@@ -36935,7 +36886,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.5.2",
+          version: "1.5.5",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

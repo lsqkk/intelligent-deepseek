@@ -74,11 +74,10 @@ const GROUPS = [
     ['allowWidgetSend', '允许组件回传消息', '组件可把你的选择带回输入框'],
   ]],
   ['表格', [
-    ['tableFullWidth', '表格铺满回答区域', '超宽表格可横向滚动'],
     ['tableSort', '按列排序', '点击表头切换升序、降序和原始顺序'],
     ['tableExport', '复制和下载表格', '提供复制、CSV 和 XLSX'],
   ]],
-  ['回答内卡片', [
+  ['新会话的回答内卡片', [
     ['inlineImages', '回答内配图', '预览图片直链，或从 Wikimedia Commons 获取配图'],
     ['weatherCards', '天气卡片', '显示实时天气与预报'],
     ['mapCards', '地图卡片', '在地图上展示地点和路线入口'],
@@ -137,7 +136,7 @@ export function installSettingsUI({ getSettings }) {
         <div class="foot">
           <button class="btn" type="button" data-act="reset">恢复默认</button>
         </div>
-        <div class="hint">改动即时保存；界面偏好在下一条消息发送时应用。</div>
+        <div class="hint">改动即时保存。卡片选项用于新会话的首轮协议，已生成的卡片照常显示。其他界面偏好从下一条消息起应用。</div>
       </div>
     `;
 

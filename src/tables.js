@@ -62,40 +62,18 @@ export class TableTools {
     }));
   }
 
-  syncLayout(fullWidth, showToolbar) {
-    const table = this.table;
-    if (!fullWidth || this.scroller !== table.parentElement) {
-      this.clearLayout();
-      if (fullWidth) {
-        this.scroller = this.nativeScroller();
-        if (!this.scroller) {
-          this.wrapper = this.scroller = document.createElement('div');
-          table.before(this.wrapper);
-          this.wrapper.append(table);
-        }
-        this.scroller.classList.add('dsui-table-scroll');
-        table.classList.add('dsui-table');
-      }
+  toolbarAnchor() {
+    // Keep the toolbar outside the native table and its scrolling wrappers.
+    let child = this.table;
+    for (let parent = child.parentElement; parent?.matches('div:not(.ds-markdown)'); parent = child.parentElement) {
+      const wrapsOnlyTable = [...parent.childNodes].every((node) =>
+        node === child || node === this.bar || node.nodeType === 8 ||
+        (node.nodeType === 3 && !node.textContent.trim()));
+      const nativeScroller = parent.matches('.ds-scroll-area') && parent.querySelectorAll('table').length === 1;
+      if (!wrapsOnlyTable && !nativeScroller) break;
+      child = parent;
     }
-    const anchor = this.scroller || this.nativeScroller() || table;
-    if (!showToolbar) this.bar.remove();
-    else if (this.bar.nextElementSibling !== anchor) anchor.before(this.bar);
-  }
-
-  nativeScroller() {
-    const parent = this.table.parentElement;
-    return parent.matches('.ds-scroll-area') ||
-      (parent.matches('div:not(.ds-markdown)') && parent.childElementCount === 1) ? parent : null;
-  }
-
-  clearLayout() {
-    this.table.classList.remove('dsui-table');
-    this.scroller?.classList.remove('dsui-table-scroll');
-    if (this.wrapper?.parentNode) {
-      if (this.table.parentNode === this.wrapper) this.wrapper.before(this.table);
-      this.wrapper.remove();
-    }
-    this.scroller = this.wrapper = null;
+    return child;
   }
 
   action(label, run) {
@@ -106,8 +84,13 @@ export class TableTools {
     return button;
   }
 
-  refresh({ tableFullWidth, tableExport, tableSort }) {
-    this.syncLayout(tableFullWidth, tableExport);
+  refresh({ tableExport, tableSort }) {
+    if (tableExport) {
+      const anchor = this.toolbarAnchor();
+      if (this.bar.nextElementSibling !== anchor) anchor.before(this.bar);
+    } else {
+      this.bar.remove();
+    }
     const columns = tableSort ? sortableColumns(this.table) : [];
     for (const [cell, button] of this.headers) {
       if (columns.includes(cell) && button.parentNode === cell) continue;
@@ -184,6 +167,5 @@ export class TableTools {
     this.resetSort();
     for (const button of this.headers.values()) button.remove();
     this.bar.remove();
-    this.clearLayout();
   }
 }

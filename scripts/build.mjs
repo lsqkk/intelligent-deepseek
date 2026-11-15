@@ -1,18 +1,39 @@
 #!/usr/bin/env node
 /** 构建油猴脚本：src/*.js -> dist/intelligent-deepseek.user.js（单文件 IIFE） */
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { gzipSync } from 'node:zlib';
+import { Script } from 'node:vm';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const licenses = ['exceljs', 'leaflet'].map((name) => {
-  const filename = path.join(path.dirname(require.resolve(`${name}/package.json`)), 'LICENSE');
-  return `/* ${name}\n${fs.readFileSync(filename, 'utf8').trimEnd()}\n*/`;
+const infographicDir = path.dirname(path.dirname(require.resolve('@antv/infographic')));
+const plantumlDir = path.dirname(require.resolve('@plantuml/core/package.json'));
+const packageDirs = {
+  exceljs: path.dirname(require.resolve('exceljs/package.json')),
+  leaflet: path.dirname(require.resolve('leaflet/package.json')),
+  '@antv/infographic': infographicDir,
+  '@plantuml/core': plantumlDir,
+};
+const licenses = Object.entries(packageDirs).map(([name, directory]) => {
+  const filename = path.join(directory, 'LICENSE');
+  return `/* ${name}\n${fs.readFileSync(filename, 'utf8').trimEnd().replaceAll('*/', '* /')}\n*/`;
 }).join('\n');
+const readScript = (directory, file) => fs.readFileSync(path.join(directory, file), 'utf8')
+  .replace(/^\/\/# sourceMappingURL=.*$/gm, '').trim();
+const infographic = readScript(infographicDir, 'dist/infographic.min.js');
+const plantuml = await transform(readScript(plantumlDir, 'plantuml.js'), {
+  format: 'iife', globalName: 'PlantUML', legalComments: 'inline',
+});
+const plantumlScript = `${readScript(plantumlDir, 'viz-global.js')}\n${plantuml.code}`;
+const packScript = (source) => {
+  new Script(source);
+  return JSON.stringify(gzipSync(source).toString('base64'));
+};
 const outDir = path.join(root, 'dist');
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -49,6 +70,8 @@ const { outputFiles } = await build({
   define: {
     __DS_VERSION__: JSON.stringify(pkg.version),
     __DS_LEAFLET_CSS__: JSON.stringify(fs.readFileSync(require.resolve('leaflet/dist/leaflet.css'), 'utf8')),
+    __DS_INFOGRAPHIC_JS__: packScript(infographic),
+    __DS_PLANTUML_JS__: packScript(plantumlScript),
   },
   banner: { js: header + licenses },
   legalComments: 'inline',

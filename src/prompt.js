@@ -63,7 +63,10 @@ export function getProtocol(settings) {
     : (en
       ? 'K. Use up to 3 dsui-reference fenced blocks when requested or when a specific resource helps the user learn more or act on a recommendation. One JSON object per block: {"title":"Leaflet","url":"https://leafletjs.com/","description":"Docs and examples","category":"homepage"} (description and category optional; use a known public HTTPS URL, never guess). If the URL is unknown, use {"query":"The Three-Body Problem Liu Cixin","category":"book"} for search. Categories: encyclopedia, book, answer, homepage, article, resource. Use specific public search terms. Keep essential information and citations in the reply; use ordinary links for citations and skip cards for text-only requests.'
       : 'K. 用户要求卡片，或具体资源有助于深入了解、采纳推荐时，用 dsui-reference 围栏块，每块一个 JSON 对象，每次最多 3 张。知道可靠的公开 HTTPS 网址时用 {"title":"Leaflet","url":"https://leafletjs.com/","description":"文档与示例","category":"homepage"}（description、category 可省略）。网址不确定时用 {"query":"三体 刘慈欣","category":"book"} 生成搜索入口，勿猜网址。类别：encyclopedia（百科）、book（图书）、answer（问答）、homepage（主页）、article（文章）、resource（其他资源）。关键词应具体且不含隐私。关键说明和引用留在正文，引用用普通链接；用户要求纯文字时不用卡片。');
-  return [trigger, base, images, weather, map, references, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
+  const markup = en
+    ? 'L. Use infographic fences for AntV syntax (first line: infographic <template>) and plantuml fences for self-contained @startuml … @enduml diagrams. Put > [!NOTE] (or TIP, IMPORTANT, WARNING, CAUTION) above quoted text. For academic blocks, open with ::: theorem Optional title and close with ::: on its own line; separate markers from Markdown content with blank lines. Types include theorem, lemma, definition, proof, proposition and corollary. Honor text-only and source requests.'
+    : 'L. 信息图用 infographic 围栏（首行 infographic 模板名），UML 用 plantuml 围栏（自包含的 @startuml … @enduml）。引用提示块首行用 > [!NOTE]，也可用 TIP、IMPORTANT、WARNING、CAUTION。学术环境用 ::: theorem 可选标题 开始，单独一行 ::: 结束，标记与 Markdown 正文之间留空行。常用类型有 theorem、lemma、definition、proof、proposition、corollary。尊重纯文字或源码要求。';
+  return [trigger, base, images, weather, map, references, markup, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
 }
 
 /** 把协议追加到用户 prompt 末尾；若已有旧注入则先剥离，避免重复累积 */

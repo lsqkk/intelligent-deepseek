@@ -1,17 +1,18 @@
 import { mountMap, readMap } from './map-card.js';
-import { mountReference, readReference } from './reference-card.js';
+import { mountReferences, readReferenceCards } from './reference-card.js';
 import { mountWeather, readWeather } from './weather-card.js';
 
 const formats = {
   'dsui-map': { read: readMap, mount: mountMap },
-  'dsui-reference': { read: readReference, mount: mountReference },
+  'dsui-reference': { parse: readReferenceCards, mount: mountReferences, keepInvalidSource: true },
   'dsui-weather': { read: readWeather, mount: (host, request) => { mountWeather(host, request).catch(() => {}); } },
 };
 
 export function readDataCard(lang, source) {
   if (!Object.hasOwn(formats, lang)) return null;
   let request = null;
-  try { request = formats[lang].read(JSON.parse(source)); } catch {}
+  const format = formats[lang];
+  try { request = format.parse ? format.parse(source) : format.read(JSON.parse(source)); } catch {}
   return { lang, request };
 }
 
@@ -26,10 +27,11 @@ export class DataCard {
   }
 
   mount() {
-    this.block.setAttribute('data-dsui-hidden', '1');
+    const format = formats[this.payload.lang];
+    if (this.payload.request || !format.keepInvalidSource) this.block.setAttribute('data-dsui-hidden', '1');
     this.block.after(this.el);
     if (this.payload.request) {
-      this.dispose = formats[this.payload.lang].mount(this.el, this.payload.request);
+      this.dispose = format.mount(this.el, this.payload.request);
     }
   }
 

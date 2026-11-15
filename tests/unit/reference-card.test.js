@@ -35,6 +35,31 @@ describe('reference cards', () => {
     }
   });
 
+  it('keeps the original code visible when a reference fence cannot be parsed', () => {
+    const block = document.createElement('div');
+    const card = new DataCard(block, readDataCard('dsui-reference', '{"query":'));
+    card.mount();
+    expect(card.el.hidden).toBe(true);
+    expect(block.hasAttribute('data-dsui-hidden')).toBe(false);
+  });
+
+  it.each(['\n', '\\\n', ',\n'])('accepts a single fence with JSON objects separated by %j', (separator) => {
+    const entries = [
+      { title: 'The Routledge Guidebook', query: 'Routledge Gramsci Schwarzmantel', description: '英文导读', category: 'book' },
+      { title: '解析《狱中札记》', query: '葛兰西 狱中札记 上海外语教育出版社', category: 'book' },
+      { title: '葛兰西传', query: '葛兰西传 生活就是反抗 弗雷迪内', category: 'book' },
+    ];
+    const source = entries.map((entry) => JSON.stringify(entry, null, 2)).join(separator);
+    const container = document.createElement('div');
+    const block = container.appendChild(document.createElement('div'));
+    const card = new DataCard(block, readDataCard('dsui-reference', source));
+    card.mount();
+    const links = [...card.el.querySelectorAll('a')];
+    expect(links.map((link) => link.querySelector('strong').textContent)).toEqual(entries.map((entry) => entry.title));
+    expect(links.map((link) => new URL(link.href).searchParams.get('search_text'))).toEqual(entries.map((entry) => entry.query));
+    expect(block.dataset.dsuiHidden).toBe('1');
+  });
+
   it('renders a direct link as text with its actual host and restores the source on removal', () => {
     const container = document.createElement('div');
     const block = container.appendChild(document.createElement('div'));

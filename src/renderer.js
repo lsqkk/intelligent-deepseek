@@ -9,6 +9,8 @@ import { detectTheme, watchTheme } from './theme.js';
 import { ImageGallery, readDirectImage, readImageRequest } from './images.js';
 import { TableTools } from './tables.js';
 import { DataCard, readDataCard } from './data-card.js';
+import { DiagramCard, diagramKind, readDiagram } from './diagram.js';
+import { MessageEnvironments } from './environments.js';
 
 const SCAN_DEBOUNCE_MS = 90;
 
@@ -17,6 +19,7 @@ export function startRenderer({ getSettings, onToast }) {
 
   const widgets = new Map(); // block element -> Widget
   const tables = new Map();
+  const environments = new MessageEnvironments();
   let theme = detectTheme();
   let scanTimer = null;
   let observer = null;
@@ -55,7 +58,8 @@ export function startRenderer({ getSettings, onToast }) {
       widgets.set(block, card);
       card.mount();
     };
-    for (const root of findAssistantRoots(document)) {
+    const roots = findAssistantRoots(document);
+    for (const root of roots) {
       if (enhanceTables) {
         for (const table of root.querySelectorAll('table')) {
           if (table.closest(SELECTORS.codeBlock) || !table.rows.length) continue;
@@ -70,6 +74,12 @@ export function startRenderer({ getSettings, onToast }) {
       }
       for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
         const lang = readLang(block);
+        const kind = diagramKind(lang);
+        if (kind) {
+          const request = readDiagram(kind, readCode(block), theme);
+          if (request) renderCard(block, DiagramCard, request);
+          continue;
+        }
         if (lang === 'dsui-image') {
           renderCard(block, ImageGallery, readImageRequest(readCode(block)));
           continue;
@@ -99,8 +109,8 @@ export function startRenderer({ getSettings, onToast }) {
           widget = adoptAdjacentWidget(block);
         }
         if (!widget) {
-          const kind = lang === 'html' || lang === 'htm' || lang === 'svg' ? 'html' : 'dsui';
-          widget = new Widget(block, { getSettings, onToast, kind });
+          const widgetKind = lang === 'html' || lang === 'htm' || lang === 'svg' ? 'html' : 'dsui';
+          widget = new Widget(block, { getSettings, onToast, kind: widgetKind });
           widgets.set(block, widget);
           widget.mount();
         } else if (widget.block !== block) {
@@ -128,6 +138,7 @@ export function startRenderer({ getSettings, onToast }) {
       }
     }
 
+    environments.update(roots);
     cleanInjectedUserBubbles();
   };
 
@@ -153,6 +164,7 @@ export function startRenderer({ getSettings, onToast }) {
   };
 
   const teardownAll = () => {
+    environments.update([]);
     for (const tools of tables.values()) tools.destroy();
     tables.clear();
     for (const [block, widget] of [...widgets]) {

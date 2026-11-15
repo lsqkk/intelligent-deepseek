@@ -4,6 +4,44 @@ export const STYLE_ID = 'dsui-global-style';
 
 const CSS = __DS_LEAFLET_CSS__ + `
 .md-code-block[data-dsui-hidden="1"] { display: none !important; }
+[data-dsui-env-hidden] { display: none !important; }
+.ds-markdown [data-dsui-env] {
+  --dsui-env-accent: #4263c0;
+  margin-block: 0;
+  padding: 2px 14px;
+  border: 0;
+  border-inline-start: 3px solid var(--dsui-env-accent);
+  background: color-mix(in srgb, var(--dsui-env-accent) 10%, transparent);
+  color: inherit;
+}
+.ds-markdown :is(ul, ol)[data-dsui-env] { padding-inline-start: 34px; }
+.ds-markdown [data-dsui-env="academic"] { --dsui-env-accent: #8260ca; }
+.ds-markdown [data-dsui-env="warning"] { --dsui-env-accent: #b37515; }
+.ds-markdown [data-dsui-env="tip"] { --dsui-env-accent: #248263; }
+.ds-markdown [data-dsui-env="danger"] { --dsui-env-accent: #c64352; }
+.ds-markdown :is([data-dsui-env-edge="start"], [data-dsui-env-edge="both"]) {
+  margin-block-start: 12px;
+  padding-block-start: 10px;
+  border-start-end-radius: 10px;
+}
+.ds-markdown :is([data-dsui-env-edge="end"], [data-dsui-env-edge="both"]) {
+  margin-block-end: 12px;
+  padding-block-end: 10px;
+  border-end-end-radius: 10px;
+}
+.ds-markdown [data-dsui-env-heading] { display: block; font-size: 0.94em; overflow-wrap: anywhere; }
+.ds-markdown blockquote[data-dsui-env] > :first-child { margin-block-start: 0; }
+.ds-markdown blockquote[data-dsui-env] > :last-child { margin-block-end: 0; }
+.dsui-diagram[data-dsui-diagram-ready] { margin-block: 12px; }
+.dsui-diagram iframe { display: block; width: 100%; height: 1px; border: 0; }
+.dsui-diagram iframe[aria-hidden="true"] { position: absolute; opacity: 0; pointer-events: none; }
+.dsui-diagram { position: relative; }
+.dsui-diagram button {
+  margin-block-end: 6px; padding: 3px 7px; font: inherit; font-size: 12px; color: inherit;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 6px;
+  background: transparent; cursor: pointer;
+}
+.dsui-diagram button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 [data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
   display: grid;
@@ -70,6 +108,7 @@ th[aria-sort="descending"] > .dsui-table-sort::before { content: '↓'; }
 .ds-markdown .dsui-reference .dsui-reference-link:hover {
   background: color-mix(in srgb, currentColor 7%, transparent);
 }
+.dsui-reference-link + .dsui-reference-link { margin-block-start: 8px; }
 .ds-markdown .dsui-reference-link:hover .dsui-reference-title { text-decoration: underline; }
 .ds-markdown .dsui-reference-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .dsui-reference-body { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }

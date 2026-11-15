@@ -90,6 +90,76 @@ const waitFor = async (fn, timeout = 8000, interval = 100) => {
 
 check('mock 页面加载且脚本注入', await page.evaluate(() => Boolean(window.__dsui)));
 
+// 图片协议等 JSON 完整后才查询，在回答原位渲染图片及来源。
+let imageSearches = 0;
+await page.route('https://commons.wikimedia.org/w/api.php?*', (route) => {
+  imageSearches++;
+  const search = new URL(route.request().url()).searchParams;
+  const query = search.get('gsrsearch');
+  if (query === 'offline filetype:bitmap') return route.fulfill({
+    status: 503, headers: { 'access-control-allow-origin': '*' },
+  });
+  const indices = {
+    'red panda filetype:bitmap': [1, 2], 'partial filetype:bitmap': [1, 3],
+    'broken filetype:bitmap': [3],
+  }[query] ?? [];
+  return route.fulfill({
+    headers: { 'access-control-allow-origin': '*' },
+    json: { query: { pages: indices.map((index) => ({
+      title: `File:Red panda ${index}.png`, index,
+      imageinfo: [{ mime: 'image/png', thumburl: `https://${index === 1 ? 'thumb' : 'upload'}.wikimedia.org/wikipedia/commons/${index}.png` }],
+    })) } },
+  });
+});
+await page.route(/^https:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/commons\//, (route) => {
+  const name = new URL(route.request().url()).pathname.split('/').pop();
+  if (name === '3.png') return route.fulfill({ status: 404 });
+  const [width, height] = name === '1.png' ? [120, 80] : [80, 120];
+  return route.fulfill({
+    contentType: 'image/svg+xml',
+    body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="teal"/></svg>`,
+  });
+});
+await page.addStyleTag({ content: '.ds-markdown img { height: auto !important; object-fit: contain !important; border-radius: 0; }' });
+await page.evaluate(() => window.addAssistant('{"query":"red panda"', { lang: 'dsui-image' }));
+const imageBlock = page.locator('.md-code-block').last();
+await imageBlock.evaluate((el) => { el.querySelector('pre').textContent = '{"query":"red panda","count":2}'; });
+const gallery = page.locator('.dsui-image-gallery');
+check('完整图片请求渲染两张图片和来源链接', await waitFor(async () =>
+  await gallery.locator('img').count() === 2 &&
+  await gallery.locator('img').evaluateAll((imgs) => imgs.every((img) => img.naturalWidth > 0)) &&
+  await gallery.locator('a').count() === 2
+));
+check('不同比例图片裁切为等高圆角缩略图', await gallery.locator('.dsui-image-frame').evaluateAll((frames) => {
+  const heights = frames.map((frame) => frame.getBoundingClientRect().height);
+  return heights.length === 2 && heights[0] === heights[1] && heights[0] > 0 && frames.every((frame) => {
+    const img = frame.querySelector('img');
+    return getComputedStyle(frame).borderRadius === '12px' && getComputedStyle(frame).overflow === 'hidden' &&
+      getComputedStyle(img).objectFit === 'cover' && img.getBoundingClientRect().height === heights[0];
+  });
+}));
+await imageBlock.evaluate((el) => el.closest('.ds-message').remove());
+check('图片块移除后清理图组且只搜索一次', await waitFor(async () => await gallery.count() === 0) && imageSearches === 1);
+await page.evaluate(() => {
+  for (const query of ['empty', 'offline', 'broken', 'partial']) {
+    const { msg } = window.addAssistant(JSON.stringify({ query, count: 2 }), { lang: 'dsui-image' });
+    msg.dataset.imageQuery = query;
+  }
+});
+const partial = page.locator('[data-image-query="partial"]');
+const fallback = page.locator('[data-image-query]:not([data-image-query="partial"])');
+check('无结果、请求失败和坏图不占位，有效图片保留', await waitFor(async () => {
+  if (imageSearches !== 5 || await partial.locator('.dsui-image-gallery a:visible').count() !== 1) return false;
+  if (await partial.locator('.dsui-image-gallery a').count() !== 1) return false;
+  return fallback.evaluateAll((messages) => messages.length === 3 && messages.every((msg) => {
+    const gallery = msg.querySelector('.dsui-image-gallery');
+    const block = msg.querySelector('.md-code-block');
+    return gallery && !gallery.textContent && getComputedStyle(gallery).display === 'none' &&
+      getComputedStyle(block).display === 'none';
+  }));
+}));
+await page.locator('[data-image-query]').evaluateAll((messages) => messages.forEach((msg) => msg.remove()));
+
 // 1) dsui 代码块 -> 卡片
 await page.evaluate((html) => window.addAssistant(html, { lang: 'dsui' }), COMPONENT);
 const rendered = await waitFor(async () => (await page.locator('.dsui-widget').count()) === 1, 8000);

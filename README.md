@@ -23,6 +23,7 @@
 
 ## 使用
 
+- **回答内配图** —— 更新脚本后开一个新对话，试试「介绍小熊猫，并在正文中插入 3 张照片」。插件把模型生成的搜索关键词发给 Wikimedia Commons，每组展示最多 6 张图片，点击可打开来源页面。搜索无需登录或 API Key。
 - 正常对话即可。遇到适合界面的问题（数据可视化、计算器、规划、表单、模拟、教学、小游戏等），模型会在简短说明后输出 `dsui` 组件，脚本自动渲染；一次回答可以包含多个组件卡片。
 - **dsui 卡片去掉外框与标题栏**，无圆角/边框/阴影/工具栏，和上下文自然衔接；组件高度自适应并向页面自然延展。
 - 若模型输出普通 `html` 完整文档，走兜底卡片并保留 **标题 / 代码 / 复制 / 下载**（这条路径样式不变）。
@@ -50,7 +51,7 @@ window.dsui.theme                                  // 'light' | 'dark'
 pnpm install
 pnpm test          # 单元测试（Vitest + jsdom，35 项）
 pnpm build         # 构建 dist/intelligent-deepseek.user.js
-pnpm test:mock     # 离线 mock E2E（26 项检查，不登录、不耗额度）
+pnpm test:mock     # 离线 mock E2E（不登录、不耗额度）
 pnpm login         # 打开可见 Edge 窗口手动登录一次（保存 .browser-profile / .auth）
 pnpm test:e2e      # 真实账号 E2E（23 项检查，会创建测试对话）
 ```
@@ -64,6 +65,7 @@ src/
   prompt.js       协议文本、末尾块注入与剥离
   sanitize.js     响应/对象深度净化
   renderer.js     DOM 扫描、卡片生命周期、兜底清理
+  images.js       Wikimedia Commons 搜索与回答内图组
   widget.js       iframe 沙箱、bridge、工具栏、渐进式渲染
   dom.js          DeepSeek DOM 适配（集中改版修复点）
   chat.js         受控 textarea 的程序化发送（草稿保护 / 发送箭头识别）

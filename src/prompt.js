@@ -24,6 +24,13 @@ E. Define theme variables --fg, --muted, --border, --accent on :root and overrid
 F. When the user needs to continue the conversation, provide a clearly labeled control that explains what will be passed back. Only after the user explicitly activates it, call window.dsui.sendMessage('text') with the selected values and units.
 G. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Keep key conclusions and assumptions in the chat and use the same language as the user. Use normal code blocks when the user only wants to read code.`;
 
+const ZH_IMAGES = `H. 用户要求配图时，或图片能帮助读者辨认对象、理解背景或看清细节时，主动在相关段落之间插入 \`\`\`dsui-image 代码块，可与 dsui HTML 块并列。
+常见场景：介绍公众人物时配肖像（如 Ada Lovelace portrait）；解读社会热点时配背景地点或设施（如 Port of Rotterdam aerial view）；教学时配实物或结构的特写（如 monarch butterfly chrysalis close-up）；讲解景点、历史文物、动植物辨识时也可配图。热点配图仅用于说明背景，不能当作事件现场或事实证据。
+块内只写一行 JSON，例如 {"query":"red panda","count":3}。客户端从 Wikimedia Commons 搜索，实际可能显示 0 至 6 张。query 用简洁英文关键词，只写公开主题，不包含个人信息。同一主题用一个块，不同主题可分别配图。正文应在没有配图时也完整自然。不要写「我找到了」「如下图」或承诺图片数量，也不要编造图片 URL 或描述尚未看到的搜索结果。`;
+const EN_IMAGES = `H. When requested, or when images help identify a subject, explain context, or show details, proactively put a \`\`\`dsui-image fenced block between the relevant paragraphs. It can appear alongside dsui HTML blocks.
+Examples include a portrait in a public figure profile (Ada Lovelace portrait), a contextual location or facility in a current-events explainer (Port of Rotterdam aerial view), or a close-up in a lesson (monarch butterfly chrysalis close-up). Images can also help with landmarks, artifacts, and wildlife identification. Context images are illustrative and must not be presented as scenes from the event or evidence for a claim.
+Put only JSON inside, e.g. {"query":"red panda","count":3}. Wikimedia Commons may return zero to six usable images. Use concise English keywords for public subjects and omit personal information. Use one block per subject. Keep the text complete and natural when images are absent. Do not say you found images, refer to images below, promise a result count, invent URLs, or describe unseen results.`;
+
 /** 生成当前配置下的协议正文 */
 export function getProtocol(settings) {
   const en = settings?.protocolLanguage === 'en';
@@ -36,7 +43,7 @@ export function getProtocol(settings) {
       : (en ? 'Use UI when requested or when it materially improves the task.' : '用户明确要求，或界面能明显帮助理解、计算或决策时，才生成组件。');
   const custom = String(settings?.customProtocol || '').replaceAll(PROMPT_START, '').replaceAll(PROMPT_END, '').trim();
   const label = en ? 'Additional presentation preferences (subject to the current request and component requirements)' : '附加呈现偏好（以本轮要求和组件约束为准）';
-  return [trigger, base, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
+  return [trigger, base, en ? EN_IMAGES : ZH_IMAGES, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
 }
 
 /** 把协议追加到用户 prompt 末尾；若已有旧注入则先剥离，避免重复累积 */

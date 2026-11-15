@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.2.1
+// @version      1.3.0
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -12,6 +12,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      commons.wikimedia.org
 // @noframes
 // ==/UserScript==
 
@@ -115,6 +117,12 @@ D. Blend into the conversation: do NOT set a background color on the root/body b
 E. Define theme variables --fg, --muted, --border, --accent on :root and override them for :root[data-ds-theme="dark"] (the client sets data-ds-theme on <html>; a @media (prefers-color-scheme: dark) fallback is optional).
 F. When the user needs to continue the conversation, provide a clearly labeled control that explains what will be passed back. Only after the user explicitly activates it, call window.dsui.sendMessage('text') with the selected values and units.
 G. A reply may contain one or more dsui blocks, each a complete runnable HTML document; code only inside the blocks. Keep key conclusions and assumptions in the chat and use the same language as the user. Use normal code blocks when the user only wants to read code.`;
+  var ZH_IMAGES = `H. 用户要求配图时，或图片能帮助读者辨认对象、理解背景或看清细节时，主动在相关段落之间插入 \`\`\`dsui-image 代码块，可与 dsui HTML 块并列。
+常见场景：介绍公众人物时配肖像（如 Ada Lovelace portrait）；解读社会热点时配背景地点或设施（如 Port of Rotterdam aerial view）；教学时配实物或结构的特写（如 monarch butterfly chrysalis close-up）；讲解景点、历史文物、动植物辨识时也可配图。热点配图仅用于说明背景，不能当作事件现场或事实证据。
+块内只写一行 JSON，例如 {"query":"red panda","count":3}。客户端从 Wikimedia Commons 搜索，实际可能显示 0 至 6 张。query 用简洁英文关键词，只写公开主题，不包含个人信息。同一主题用一个块，不同主题可分别配图。正文应在没有配图时也完整自然。不要写「我找到了」「如下图」或承诺图片数量，也不要编造图片 URL 或描述尚未看到的搜索结果。`;
+  var EN_IMAGES = `H. When requested, or when images help identify a subject, explain context, or show details, proactively put a \`\`\`dsui-image fenced block between the relevant paragraphs. It can appear alongside dsui HTML blocks.
+Examples include a portrait in a public figure profile (Ada Lovelace portrait), a contextual location or facility in a current-events explainer (Port of Rotterdam aerial view), or a close-up in a lesson (monarch butterfly chrysalis close-up). Images can also help with landmarks, artifacts, and wildlife identification. Context images are illustrative and must not be presented as scenes from the event or evidence for a claim.
+Put only JSON inside, e.g. {"query":"red panda","count":3}. Wikimedia Commons may return zero to six usable images. Use concise English keywords for public subjects and omit personal information. Use one block per subject. Keep the text complete and natural when images are absent. Do not say you found images, refer to images below, promise a result count, invent URLs, or describe unseen results.`;
   function getProtocol(settings) {
     const en = settings?.protocolLanguage === "en";
     const base = en ? EN_PROTOCOL : ZH_PROTOCOL;
@@ -122,7 +130,7 @@ G. A reply may contain one or more dsui blocks, each a complete runnable HTML do
     const trigger = preference === "explicit" ? en ? "Only generate a component when explicitly requested." : "仅在用户明确要求交互界面、工具或可视化时生成组件。" : preference === "frequent" ? en ? "Prefer interactive UI for meaningful trends, comparisons and calculations." : "对有实质内容的趋势、比较和计算，优先考虑交互界面。" : en ? "Use UI when requested or when it materially improves the task." : "用户明确要求，或界面能明显帮助理解、计算或决策时，才生成组件。";
     const custom = String(settings?.customProtocol || "").replaceAll(PROMPT_START, "").replaceAll(PROMPT_END, "").trim();
     const label = en ? "Additional presentation preferences (subject to the current request and component requirements)" : "附加呈现偏好（以本轮要求和组件约束为准）";
-    return [trigger, base, custom && `${label}
+    return [trigger, base, en ? EN_IMAGES : ZH_IMAGES, custom && `${label}
 ${custom}`].filter(Boolean).join("\n");
   }
   function applyInjection(prompt, settings) {
@@ -435,6 +443,33 @@ ${PROMPT_END}`;
   var STYLE_ID = "dsui-global-style";
   var CSS = `
 .md-code-block[data-dsui-hidden="1"] { display: none !important; }
+.dsui-image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.dsui-image-gallery a { min-width: 0; color: inherit; font-size: 12px; }
+.dsui-image-gallery[hidden],
+.dsui-image-gallery > a[hidden] { display: none !important; }
+.dsui-image-gallery .dsui-image-frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.ds-markdown .dsui-image-gallery .dsui-image-frame > img {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  object-fit: cover !important;
+  object-position: center;
+}
+.dsui-image-gallery > a > span { display: block; margin-top: 5px; }
 
 .dsui-widget {
   --dsui-bg: #ffffff;
@@ -1540,6 +1575,144 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     }
   };
 
+  // src/images.js
+  var COMMONS = "https://commons.wikimedia.org";
+  var searches = /* @__PURE__ */ new Map();
+  function readImageRequest(code) {
+    try {
+      const value = JSON.parse(code);
+      const query = typeof value?.query === "string" ? value.query.trim() : "";
+      const count = value?.count ?? 1;
+      if (!query || query.length > 120 || !Number.isInteger(count) || count < 1 || count > 6) return null;
+      return { query, count };
+    } catch {
+      return null;
+    }
+  }
+  async function requestJson(url) {
+    if (typeof GM_xmlhttpRequest === "function") {
+      return new Promise((resolve, reject) => {
+        let timer;
+        const fail = () => {
+          clearTimeout(timer);
+          reject(new Error("图片搜索失败"));
+        };
+        const request = GM_xmlhttpRequest({
+          method: "GET",
+          url: url.href,
+          anonymous: true,
+          responseType: "json",
+          onload(response2) {
+            if (response2.status < 200 || response2.status >= 300) return fail();
+            clearTimeout(timer);
+            resolve(response2.response);
+          },
+          onerror: fail,
+          onabort: fail,
+          ontimeout: fail
+        });
+        timer = setTimeout(() => {
+          reject(new Error("图片搜索超时"));
+          request?.abort();
+        }, 12e3);
+      });
+    }
+    const response = await fetch(url, {
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      signal: AbortSignal.timeout(12e3)
+    });
+    if (!response.ok) throw new Error("图片搜索失败");
+    return response.json();
+  }
+  function search({ query, count }) {
+    const key = JSON.stringify([query, count]);
+    if (searches.has(key)) return searches.get(key);
+    const url = new URL("/w/api.php", COMMONS);
+    url.search = new URLSearchParams({
+      action: "query",
+      format: "json",
+      formatversion: "2",
+      origin: "*",
+      generator: "search",
+      gsrnamespace: "6",
+      gsrsearch: `${query} filetype:bitmap`,
+      gsrlimit: String(count * 2),
+      prop: "imageinfo",
+      iiprop: "url|mime",
+      iiurlwidth: "640"
+    });
+    const pending = requestJson(url).then((data) => {
+      if (!data || data.error) throw new Error("图片搜索失败");
+      const pages = data.query?.pages ?? [];
+      return pages.sort((a, b) => a.index - b.index).flatMap(({ title, imageinfo }) => {
+        const image = imageinfo?.[0];
+        if (!title?.startsWith("File:") || !/^image\/(?:jpeg|png|webp|gif)$/.test(image?.mime)) return [];
+        const src = image.thumburl || image.url;
+        if (!/^https:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/commons\//.test(src)) return [];
+        return [{
+          src,
+          title: title.slice(5).replace(/_/g, " "),
+          href: `${COMMONS}/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`
+        }];
+      }).slice(0, count);
+    }).catch((error) => {
+      if (searches.get(key) === pending) searches.delete(key);
+      throw error;
+    });
+    searches.set(key, pending);
+    if (searches.size > 40) searches.delete(searches.keys().next().value);
+    return pending;
+  }
+  var ImageGallery = class {
+    constructor(block, request) {
+      this.block = block;
+      this.request = request;
+      this.el = document.createElement("div");
+      this.el.className = "dsui-image-gallery";
+      this.el.hidden = true;
+    }
+    mount() {
+      this.block.setAttribute("data-dsui-hidden", "1");
+      this.block.after(this.el);
+      if (this.request) this.load();
+    }
+    async load() {
+      const images = await search(this.request).catch(() => []);
+      if (this.destroyed) return;
+      for (const { src, title, href } of images) {
+        const link = document.createElement("a");
+        link.hidden = true;
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.title = title;
+        const frame = document.createElement("div");
+        frame.className = "dsui-image-frame";
+        const image = document.createElement("img");
+        image.alt = title;
+        image.decoding = "async";
+        image.referrerPolicy = "no-referrer";
+        image.addEventListener("load", () => {
+          link.hidden = false;
+          this.el.hidden = false;
+        }, { once: true });
+        image.addEventListener("error", () => link.remove(), { once: true });
+        const caption = document.createElement("span");
+        caption.textContent = "Wikimedia Commons ↗";
+        frame.append(image);
+        link.append(frame, caption);
+        this.el.append(link);
+        image.src = src;
+      }
+    }
+    destroy() {
+      this.destroyed = true;
+      this.el.remove();
+      this.block.removeAttribute("data-dsui-hidden");
+    }
+  };
+
   // src/renderer.js
   var SCAN_DEBOUNCE_MS = 90;
   function startRenderer({ getSettings: getSettings2, onToast }) {
@@ -1572,8 +1745,21 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       const seen = /* @__PURE__ */ new Set();
       for (const root of findAssistantRoots(document)) {
         for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
+          const lang = readLang(block);
+          if (lang === "dsui-image") {
+            const request = readImageRequest(readCode(block));
+            const current = widgets.get(block);
+            if (!(current instanceof ImageGallery) || !current.el.isConnected || current.request?.query !== request?.query || current.request?.count !== request?.count) {
+              current?.destroy();
+              const gallery = new ImageGallery(block, request);
+              widgets.set(block, gallery);
+              gallery.mount();
+            }
+            seen.add(block);
+            continue;
+          }
           if (!shouldRenderBlock(block, settings)) {
-            if (block.hasAttribute("data-dsui-hidden") && ![...widgets.keys()].includes(block)) {
+            if (block.hasAttribute("data-dsui-hidden") && !widgets.has(block)) {
               block.removeAttribute("data-dsui-hidden");
             }
             continue;
@@ -1581,7 +1767,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
           seen.add(block);
           block.setAttribute("data-dsui-hidden", "1");
           let widget = widgets.get(block);
-          if (widget && (!widget.el?.isConnected || widget.block !== block)) {
+          if (widget && (widget instanceof ImageGallery || !widget.el?.isConnected || widget.block !== block)) {
             widget.destroy();
             widgets.delete(block);
             widget = null;
@@ -1590,7 +1776,6 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
             widget = adoptAdjacentWidget(block);
           }
           if (!widget) {
-            const lang = readLang(block);
             const kind = lang === "html" || lang === "htm" || lang === "svg" ? "html" : "dsui";
             widget = new Widget(block, { getSettings: getSettings2, onToast, kind });
             widgets.set(block, widget);
@@ -1600,6 +1785,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
             block.setAttribute("data-dsui-hidden", "1");
             block.after(widget.el);
           }
+          block.setAttribute("data-dsui-hidden", "1");
           widget.update(readCode(block));
         }
       }
@@ -1760,7 +1946,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.2.1";
+  var VERSION = false ? "dev" : "1.3.0";
   var TOGGLES = [
     { key: "enabled", label: "启用 Intelligent UI", desc: "总开关：关闭后不注入、不渲染" },
     { key: "injectPrompt", label: "自动注入界面协议", desc: "新会话首条消息注入一次（推荐）" },
@@ -1975,7 +2161,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.2.1", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.3.0", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -2004,7 +2190,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.2.1",
+      version: "1.3.0",
       getSettings,
       saveSettings,
       resetSettings: () => {
@@ -2018,7 +2204,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.2.1",
+          version: "1.3.0",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

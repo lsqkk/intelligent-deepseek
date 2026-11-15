@@ -4,6 +4,33 @@ export const STYLE_ID = 'dsui-global-style';
 
 const CSS = `
 .md-code-block[data-dsui-hidden="1"] { display: none !important; }
+.dsui-image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.dsui-image-gallery a { min-width: 0; color: inherit; font-size: 12px; }
+.dsui-image-gallery[hidden],
+.dsui-image-gallery > a[hidden] { display: none !important; }
+.dsui-image-gallery .dsui-image-frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.ds-markdown .dsui-image-gallery .dsui-image-frame > img {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  object-fit: cover !important;
+  object-position: center;
+}
+.dsui-image-gallery > a > span { display: block; margin-top: 5px; }
 
 .dsui-widget {
   --dsui-bg: #ffffff;

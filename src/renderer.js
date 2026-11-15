@@ -6,6 +6,7 @@ import { PROMPT_END, PROMPT_START } from './prompt.js';
 import { findAssistantRoots, readCode, readLang, shouldRenderBlock, SELECTORS } from './dom.js';
 import { Widget, installWidgetMessageRouter, applyThemeToAll } from './widget.js';
 import { detectTheme, watchTheme } from './theme.js';
+import { ImageGallery, readImageRequest } from './images.js';
 
 const SCAN_DEBOUNCE_MS = 90;
 
@@ -43,9 +44,23 @@ export function startRenderer({ getSettings, onToast }) {
     const seen = new Set();
     for (const root of findAssistantRoots(document)) {
       for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
+        const lang = readLang(block);
+        if (lang === 'dsui-image') {
+          const request = readImageRequest(readCode(block));
+          const current = widgets.get(block);
+          if (!(current instanceof ImageGallery) || !current.el.isConnected ||
+              current.request?.query !== request?.query || current.request?.count !== request?.count) {
+            current?.destroy();
+            const gallery = new ImageGallery(block, request);
+            widgets.set(block, gallery);
+            gallery.mount();
+          }
+          seen.add(block);
+          continue;
+        }
         if (!shouldRenderBlock(block, settings)) {
           // 之前渲染过但设置变了/内容变了：恢复原代码块
-          if (block.hasAttribute('data-dsui-hidden') && ![...widgets.keys()].includes(block)) {
+          if (block.hasAttribute('data-dsui-hidden') && !widgets.has(block)) {
             block.removeAttribute('data-dsui-hidden');
           }
           continue;
@@ -54,7 +69,7 @@ export function startRenderer({ getSettings, onToast }) {
         block.setAttribute('data-dsui-hidden', '1');
 
         let widget = widgets.get(block);
-        if (widget && (!widget.el?.isConnected || widget.block !== block)) {
+        if (widget && (widget instanceof ImageGallery || !widget.el?.isConnected || widget.block !== block)) {
           widget.destroy();
           widgets.delete(block);
           widget = null;
@@ -63,7 +78,6 @@ export function startRenderer({ getSettings, onToast }) {
           widget = adoptAdjacentWidget(block);
         }
         if (!widget) {
-          const lang = readLang(block);
           const kind = lang === 'html' || lang === 'htm' || lang === 'svg' ? 'html' : 'dsui';
           widget = new Widget(block, { getSettings, onToast, kind });
           widgets.set(block, widget);
@@ -75,6 +89,7 @@ export function startRenderer({ getSettings, onToast }) {
           block.after(widget.el);
         }
 
+        block.setAttribute('data-dsui-hidden', '1');
         widget.update(readCode(block));
       }
     }

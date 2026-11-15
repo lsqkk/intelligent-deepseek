@@ -7,6 +7,8 @@ import { findAssistantRoots, readCode, readLang, shouldRenderBlock, SELECTORS } 
 import { Widget, installWidgetMessageRouter, applyThemeToAll } from './widget.js';
 import { detectTheme, watchTheme } from './theme.js';
 import { ImageGallery, readDirectImage, readImageRequest } from './images.js';
+import { TableTools } from './tables.js';
+import { DataCard, readDataCard } from './data-card.js';
 
 const SCAN_DEBOUNCE_MS = 90;
 
@@ -14,6 +16,7 @@ export function startRenderer({ getSettings, onToast }) {
   installWidgetMessageRouter();
 
   const widgets = new Map(); // block element -> Widget
+  const tables = new Map();
   let theme = detectTheme();
   let scanTimer = null;
   let observer = null;
@@ -42,24 +45,36 @@ export function startRenderer({ getSettings, onToast }) {
     }
 
     const seen = new Set();
-    const renderImages = (block, request) => {
+    const seenTables = new Set();
+    const renderCard = (block, Card, request) => {
       seen.add(block);
       const current = widgets.get(block);
-      if (current instanceof ImageGallery && current.el.isConnected && current.key === JSON.stringify(request)) return;
+      if (current instanceof Card && current.el.isConnected && current.key === JSON.stringify(request)) return;
       current?.destroy();
-      const gallery = new ImageGallery(block, request);
-      widgets.set(block, gallery);
-      gallery.mount();
+      const card = new Card(block, request);
+      widgets.set(block, card);
+      card.mount();
     };
     for (const root of findAssistantRoots(document)) {
+      for (const table of root.querySelectorAll('table')) {
+        if (table.closest(SELECTORS.codeBlock) || !table.rows.length) continue;
+        seenTables.add(table);
+        if (!tables.has(table)) tables.set(table, new TableTools(table, onToast));
+        tables.get(table).refresh();
+      }
       for (const block of root.querySelectorAll('p')) {
         const request = readDirectImage(block);
-        if (request) renderImages(block, request);
+        if (request) renderCard(block, ImageGallery, request);
       }
       for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
         const lang = readLang(block);
         if (lang === 'dsui-image') {
-          renderImages(block, readImageRequest(readCode(block)));
+          renderCard(block, ImageGallery, readImageRequest(readCode(block)));
+          continue;
+        }
+        const dataCard = readDataCard(lang, readCode(block));
+        if (dataCard) {
+          renderCard(block, DataCard, dataCard);
           continue;
         }
         if (!shouldRenderBlock(block, settings)) {
@@ -73,7 +88,7 @@ export function startRenderer({ getSettings, onToast }) {
         block.setAttribute('data-dsui-hidden', '1');
 
         let widget = widgets.get(block);
-        if (widget && (widget instanceof ImageGallery || !widget.el?.isConnected || widget.block !== block)) {
+        if (widget && (!(widget instanceof Widget) || !widget.el?.isConnected || widget.block !== block)) {
           widget.destroy();
           widgets.delete(block);
           widget = null;
@@ -96,6 +111,11 @@ export function startRenderer({ getSettings, onToast }) {
         block.setAttribute('data-dsui-hidden', '1');
         widget.update(readCode(block));
       }
+    }
+    for (const [table, tools] of tables) {
+      if (seenTables.has(table)) continue;
+      tools.destroy();
+      tables.delete(table);
     }
 
     // 清理已经不属于任何消息的卡片
@@ -131,6 +151,8 @@ export function startRenderer({ getSettings, onToast }) {
   };
 
   const teardownAll = () => {
+    for (const tools of tables.values()) tools.destroy();
+    tables.clear();
     for (const [block, widget] of [...widgets]) {
       widget.destroy();
       widgets.delete(block);

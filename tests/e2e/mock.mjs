@@ -5,6 +5,7 @@
  * 运行：node tests/e2e/mock.mjs（无需登录、不消耗模型额度）
  */
 import { chromium } from 'playwright';
+import ExcelJS from 'exceljs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -182,6 +183,186 @@ check('坏直链静默回退，普通链接继续可见', await waitFor(async ()
   await page.locator('#named-link:visible, #inline-link:visible').count() === 2
 ));
 await page.locator('#direct-image-fixture').evaluate((msg) => msg.remove());
+
+await page.evaluate(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true, value: { writeText: async (text) => { window.copiedTable = text; } },
+  });
+  const { msg, block } = window.addAssistant('', { lang: 'text' });
+  msg.id = 'table-fixture';
+  block.outerHTML = `<div style="max-width:220px"><div class="ds-scroll-area"><table>
+    <thead><tr><th style="min-width:170px">方案</th><th style="min-width:160px">变化</th></tr></thead>
+    <tbody><tr><td>方案 "甲", A</td><td>12.5%</td></tr>
+    <tr><td>=1+2</td><td>-2%</td></tr><tr><td>方案丙</td><td></td></tr></tbody>
+  </table></div></div>`;
+});
+const tableMessage = page.locator('#table-fixture');
+const table = tableMessage.locator('table');
+const sort = table.getByRole('button', { name: '排序：变化' });
+const values = () => table.locator('tbody tr td:nth-child(2)').allTextContents();
+await sort.focus();
+await sort.press('Enter');
+check('原生表格可横向滚动，百分比按数值升序且空值在末尾',
+  (await table.evaluate((el) => {
+    const scroller = el.parentElement;
+    const toolbar = scroller.previousElementSibling;
+    return scroller.scrollWidth > scroller.clientWidth && toolbar.classList.contains('dsui-table-tools') &&
+      toolbar.clientWidth <= scroller.clientWidth && getComputedStyle(el).display === 'table';
+  })) &&
+  JSON.stringify(await values()) === JSON.stringify(['-2%', '12.5%', '']));
+await tableMessage.getByRole('button', { name: '复制表格' }).click();
+check('复制按当前顺序生成 TSV 并保护公式文本', await page.evaluate(() =>
+  window.copiedTable === '方案\t变化\r\n\'=1+2\t-2%\r\n"方案 ""甲"", A"\t12.5%\r\n方案丙\t'
+));
+const downloaded = page.waitForEvent('download');
+await tableMessage.getByRole('button', { name: '下载 CSV' }).click();
+const tableDownload = await downloaded;
+const csv = fs.readFileSync(await tableDownload.path(), 'utf8');
+check('下载 UTF-8 CSV，保留中文并转义逗号和引号',
+  tableDownload.suggestedFilename().endsWith('.csv') &&
+  csv === '\uFEFF方案,变化\r\n\'=1+2,-2%\r\n"方案 ""甲"", A",12.5%\r\n方案丙,');
+const downloadingWorkbook = page.waitForEvent('download', { timeout: 10000 });
+await tableMessage.getByRole('button', { name: '下载 XLSX' }).click();
+const workbookFile = await downloadingWorkbook;
+const workbook = new ExcelJS.Workbook();
+await workbook.xlsx.readFile(await workbookFile.path());
+const [sheet] = workbook.worksheets;
+check('XLSX 可读取，保留顺序与百分数并冻结表头', workbookFile.suggestedFilename().endsWith('.xlsx') &&
+  sheet.getCell('A1').value === '方案' && sheet.getCell('A2').value === '=1+2' &&
+  sheet.getCell('B2').value === -0.02 && sheet.getCell('B2').numFmt === '0%' &&
+  sheet.getCell('B3').numFmt === '0.0%' && sheet.views[0].ySplit === 1 && Boolean(sheet.autoFilter));
+await sort.click();
+check('再次点击切换为降序', await table.locator('th[aria-sort="descending"]').count() === 1 &&
+  JSON.stringify(await values()) === JSON.stringify(['12.5%', '-2%', '']));
+await sort.click();
+check('第三次排序恢复且清除 aria-sort', await table.locator('th[aria-sort]').count() === 0);
+await tableMessage.evaluate((msg) => msg.remove());
+
+await page.evaluate(() => {
+  const { msg, block } = window.addAssistant('', { lang: 'text' });
+  msg.id = 'narrow-table';
+  block.outerHTML = '<div class="ds-scroll-area"><table><thead><tr><th>甲</th><th>乙</th></tr></thead><tbody><tr><td>A</td><td>B</td></tr></tbody></table></div>';
+});
+const narrow = page.locator('#narrow-table');
+check('窄两列表铺满正文，第二列位于中部', await waitFor(() => narrow.locator('table').evaluate((el) => {
+  if (!el.classList.contains('dsui-table')) return false;
+  const box = el.getBoundingClientRect();
+  const column = el.tHead.rows[0].cells[1].getBoundingClientRect();
+  return box.width >= el.parentElement.clientWidth - 1 && (column.left - box.left) / box.width > 0.4;
+})));
+await narrow.evaluate((msg) => msg.remove());
+
+let weatherLookups = 0;
+await page.route('https://geocoding-api.open-meteo.com/v1/search?*', (route) => {
+  weatherLookups++;
+  return route.fulfill({
+    headers: { 'access-control-allow-origin': '*' },
+    json: { results: new URL(route.request().url()).searchParams.get('name') === '北京' ?
+      [{ name: '北京', country: '中国', latitude: 39.9, longitude: 116.4 }] : [] },
+  });
+});
+await page.route('https://api.open-meteo.com/v1/forecast?*', (route) => route.fulfill({
+  headers: { 'access-control-allow-origin': '*' },
+  json: {
+    current: { temperature_2m: 13, weather_code: 0, time: '2026-11-15T11:00' },
+    daily: { time: ['2026-11-15', '2026-11-16'], temperature_2m_min: [5, 6], temperature_2m_max: [14, 16],
+      weather_code: [0, 3], precipitation_probability_max: [0, 30] },
+  },
+}));
+let blockTiles = false;
+let placeLookups = 0;
+await page.route('https://photon.komoot.io/api?*', (route) => {
+  placeLookups++;
+  const query = new URL(route.request().url()).searchParams.get('q');
+  const point = (name, city, osm_value, coordinates) => ({
+    properties: { name, city, osm_value, type: 'other' },
+    geometry: { type: 'Point', coordinates },
+  });
+  const features = {
+    西安碑林博物馆: [
+      point('碑林博物馆二期', "Xi'an", 'construction', [108.9480757, 34.2570186]),
+      point("Xi'an Stele Forest Museum", "Xi'an", 'museum', [108.9481311, 34.2550498]),
+    ],
+    西安钟楼: [point('钟楼', '西安市', 'attraction', [108.9423, 34.261])],
+    西安同名景点: [point('同名景点', '杭州市', 'attraction', [120, 30])],
+  }[query] ?? [];
+  return route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: { features } });
+});
+await page.route('https://tile.openstreetmap.org/**', (route) => blockTiles ? route.abort() : route.fulfill({
+  contentType: 'image/png',
+  body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/w9sAAAAASUVORK5CYII=', 'base64'),
+}));
+await page.evaluate(() => {
+  const addCard = (id, lang, data) => {
+    const { msg } = window.addAssistant(JSON.stringify(data), { lang });
+    msg.id = id;
+  };
+  addCard('weather-card', 'dsui-weather', { city: '北京', days: 2 });
+  addCard('no-weather', 'dsui-weather', { city: 'unknown' });
+  addCard('map-card', 'dsui-map', { places: [['故宫', 39.916, 116.397], ['景山', 39.925, 116.397]] });
+});
+const weather = page.locator('#weather-card .dsui-weather');
+check('天气卡显示真实接口结构中的城市、当前温度、日预报与来源', await waitFor(async () =>
+  (await weather.locator('li').count()) === 2 && (await weather.isVisible()) &&
+  (await weather.innerText()).includes('13 °C') && (await weather.innerText()).includes('降水 30%') &&
+  (await weather.locator('a').getAttribute('href')) === 'https://open-meteo.com/'
+));
+check('找不到城市时隐藏天气卡和原协议块', await waitFor(async () =>
+  weatherLookups === 2 && await page.locator('#no-weather .dsui-weather[hidden]').count() === 1 &&
+  !(await page.locator('#no-weather .md-code-block').isVisible())
+));
+const map = page.locator('#map-card');
+await map.scrollIntoViewIfNeeded();
+check('地图呈现底图、地点标记与路线入口', await waitFor(async () =>
+  await map.locator('.leaflet-tile-loaded').count() > 0 && await map.locator('.dsui-map-pin').count() === 2 &&
+  (await map.getByRole('link', { name: '打开路线 ↗' }).getAttribute('href')).includes('destination=39.925%2C116.397')
+));
+await map.getByRole('button', { name: '2. 景山' }).click();
+check('点击地点聚焦地图并显示对应标记详情', await waitFor(async () =>
+  await map.locator('.leaflet-popup').getByRole('link', { name: '景山 ↗' }).isVisible()
+));
+await page.evaluate(() => {
+  const { msg } = window.addAssistant(JSON.stringify({ city: '西安', places: ['碑林博物馆', '钟楼', '同名景点'] }),
+    { lang: 'dsui-map' });
+  msg.id = 'map-keywords';
+});
+const keywordMap = page.locator('#map-keywords');
+await keywordMap.scrollIntoViewIfNeeded();
+check('关键词打点排除工地和外地同名结果，保留未匹配地点的搜索链接', await waitFor(async () =>
+  await keywordMap.locator('.dsui-map-pin').count() === 2 &&
+  await keywordMap.getByRole('link', { name: '3. 同名景点 · 搜索 ↗' }).isVisible() &&
+  await keywordMap.getByRole('link', { name: '打开路线 ↗' }).count() === 0
+));
+await keywordMap.getByRole('button', { name: '1. 碑林博物馆' }).click();
+check('地图标记使用搜索坐标，弹窗显示匹配地址', await waitFor(async () => {
+  const popup = keywordMap.locator('.leaflet-popup');
+  if (!await popup.isVisible()) return false;
+  const href = await popup.getByRole('link').getAttribute('href');
+  return href.includes('mlat=34.2550498&mlon=108.9481311') &&
+    (await popup.locator('.dsui-map-address').innerText()).includes("Xi'an Stele Forest Museum");
+}));
+await page.evaluate(() => {
+  const { msg } = window.addAssistant('{"city":"西安","places":["碑林博物馆"]}', { lang: 'dsui-map' });
+  msg.id = 'map-keywords-cache';
+});
+const cachedMap = page.locator('#map-keywords-cache');
+await cachedMap.scrollIntoViewIfNeeded();
+check('同一地点重复展示复用查询结果', await waitFor(async () =>
+  await cachedMap.locator('.dsui-map-pin').count() === 1 && placeLookups === 4
+));
+blockTiles = true;
+await page.evaluate(() => {
+  const { msg } = window.addAssistant('{"places":[["悉尼",-33.8688,151.2093]]}', { lang: 'dsui-map' });
+  msg.id = 'map-offline';
+});
+const offlineMap = page.locator('#map-offline');
+await offlineMap.scrollIntoViewIfNeeded();
+check('底图失败时保留地点和外部地图入口', await waitFor(async () =>
+  await offlineMap.locator('.dsui-map-canvas[hidden]').count() === 1 &&
+  await offlineMap.getByRole('link', { name: '打开地图 ↗' }).isVisible()
+));
+await page.locator('#weather-card, #no-weather, #map-card, #map-offline, #map-keywords, #map-keywords-cache')
+  .evaluateAll((messages) => messages.forEach((msg) => msg.remove()));
 
 // 1) dsui 代码块 -> 卡片
 await page.evaluate((html) => window.addAssistant(html, { lang: 'dsui' }), COMPONENT);

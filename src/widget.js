@@ -5,6 +5,7 @@
 import { clampWidgetHeight, extractTitle } from './dom.js';
 import { sendToChat, getComposer, setComposerText } from './chat.js';
 import { detectTheme } from './theme.js';
+import { copyText, downloadFile } from './files.js';
 
 const WIDGETS_BY_TOKEN = new Map();
 const ALL_WIDGETS = new Set();
@@ -436,20 +437,7 @@ export class Widget {
   }
 
   async copyCode(button) {
-    const text = this.code;
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
-      document.body.appendChild(ta);
-      ta.select();
-      ok = document.execCommand('copy');
-      ta.remove();
-    }
+    const ok = await copyText(this.code);
     button.textContent = ok ? '已复制' : '复制失败';
     setTimeout(() => {
       button.textContent = '复制';
@@ -460,15 +448,7 @@ export class Widget {
     try {
       const title = (this.titleEl?.textContent || 'component').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 60);
       const blob = new Blob([this.code], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title || 'component'}.html`;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      downloadFile(blob, `${title || 'component'}.html`);
       button.textContent = '已下载';
       setTimeout(() => {
         button.textContent = '下载';

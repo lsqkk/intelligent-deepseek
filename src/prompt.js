@@ -45,7 +45,10 @@ export function getProtocol(settings) {
       : (en ? 'Use UI when requested or when it materially improves the task.' : '用户明确要求，或界面能明显帮助理解、计算或决策时，才生成组件。');
   const custom = String(settings?.customProtocol || '').replaceAll(PROMPT_START, '').replaceAll(PROMPT_END, '').trim();
   const label = en ? 'Additional presentation preferences (subject to the current request and component requirements)' : '附加呈现偏好（以本轮要求和组件约束为准）';
-  return [trigger, base, en ? EN_IMAGES : ZH_IMAGES, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
+  const cards = en
+    ? 'I. For current or forecast weather, use a dsui-weather fenced JSON block like {"city":"Beijing","days":5} (1–7 days, or "date":"YYYY-MM-DD" for one specific date). The client fetches weather; do not invent values. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.'
+    : 'I. 实况或预报用 dsui-weather 围栏 JSON 块，如 {"city":"北京","days":5}（1–7 天，指定某天可用 "date":"YYYY-MM-DD"）。由客户端查天气，勿编造数值。地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。';
+  return [trigger, base, en ? EN_IMAGES : ZH_IMAGES, cards, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
 }
 
 /** 把协议追加到用户 prompt 末尾；若已有旧注入则先剥离，避免重复累积 */

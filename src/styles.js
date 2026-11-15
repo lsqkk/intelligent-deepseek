@@ -2,7 +2,7 @@
 
 export const STYLE_ID = 'dsui-global-style';
 
-const CSS = `
+const CSS = __DS_LEAFLET_CSS__ + `
 .md-code-block[data-dsui-hidden="1"] { display: none !important; }
 [data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
@@ -32,6 +32,59 @@ const CSS = `
   object-position: center;
 }
 .dsui-image-gallery > a > span { display: block; margin-top: 5px; }
+
+.ds-markdown .dsui-table-scroll { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; contain: inline-size; overflow-x: auto; }
+.ds-markdown .dsui-table-scroll > table.dsui-table { display: table; width: 100%; }
+.dsui-table-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-bottom: 4px; min-width: 0; max-width: 100%; }
+.dsui-table-tools button:disabled { opacity: .5; cursor: wait; }
+.dsui-table-tools button,
+.dsui-table-sort {
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.dsui-table-tools button:hover,
+.dsui-table-sort:hover { background: color-mix(in srgb, currentColor 9%, transparent); }
+.dsui-table-sort { margin-inline-start: 4px; }
+.dsui-table-sort::before { content: '↕'; }
+th[aria-sort="ascending"] > .dsui-table-sort::before { content: '↑'; }
+th[aria-sort="descending"] > .dsui-table-sort::before { content: '↓'; }
+
+.dsui-data-card { margin: 12px 0; min-width: 0; }
+.dsui-data-card[hidden], .dsui-map-canvas[hidden] { display: none !important; }
+.dsui-map-canvas { height: clamp(220px, 42vw, 360px); border-radius: 12px; isolation: isolate; }
+.dsui-map-canvas img.leaflet-tile { margin: 0 !important; border-radius: 0 !important; }
+.dsui-map-canvas a { color: #0958a5; }
+.dsui-map-address { display: block; margin-top: 4px; }
+.dsui-map-pin {
+  display: grid; place-items: center; border: 2px solid white; border-radius: 50%;
+  background: #345be0; color: white; font-weight: 700; box-shadow: 0 1px 5px #0005;
+}
+.dsui-map-places { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 13px; }
+.dsui-map-places button {
+  color: inherit; background: transparent; font: inherit; cursor: pointer;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 7px; padding: 4px 8px;
+}
+.dsui-weather {
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 12px; padding: 12px 14px;
+}
+.dsui-weather-header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; }
+.ds-markdown .dsui-weather .dsui-weather-days {
+  list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 88px), 1fr));
+  gap: 8px; padding: 0; margin: 10px 0;
+}
+.ds-markdown .dsui-weather-days > li {
+  margin: 0; display: flex; flex-direction: column; gap: 3px;
+  padding: 7px 9px; font-size: 13px; border-radius: 8px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+.dsui-weather-source { font-size: 12px; }
 
 .dsui-widget {
   --dsui-bg: #ffffff;

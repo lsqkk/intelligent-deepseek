@@ -4,9 +4,15 @@ import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const licenses = ['exceljs', 'leaflet'].map((name) => {
+  const filename = path.join(path.dirname(require.resolve(`${name}/package.json`)), 'LICENSE');
+  return `/* ${name}\n${fs.readFileSync(filename, 'utf8').trimEnd()}\n*/`;
+}).join('\n');
 const outDir = path.join(root, 'dist');
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -26,21 +32,26 @@ const header = `// ==UserScript==
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @connect      commons.wikimedia.org
+// @connect      geocoding-api.open-meteo.com
+// @connect      api.open-meteo.com
+// @connect      photon.komoot.io
 // @noframes
 // ==/UserScript==
 `;
 
-await build({
+const { outputFiles } = await build({
   entryPoints: [path.join(root, 'src', 'main.js')],
   bundle: true,
   format: 'iife',
   target: ['chrome110', 'edge110'],
   outfile: path.join(outDir, 'intelligent-deepseek.user.js'),
+  write: false,
   define: {
     __DS_VERSION__: JSON.stringify(pkg.version),
+    __DS_LEAFLET_CSS__: JSON.stringify(fs.readFileSync(require.resolve('leaflet/dist/leaflet.css'), 'utf8')),
   },
-  banner: { js: header },
-  legalComments: 'none',
+  banner: { js: header + licenses },
+  legalComments: 'inline',
   charset: 'utf8',
   minify: false,
   sourcemap: false,
@@ -48,5 +59,6 @@ await build({
 });
 
 const outFile = path.join(outDir, 'intelligent-deepseek.user.js');
+fs.writeFileSync(outFile, outputFiles[0].text.replace(/^[ \t]+$/gm, ''));
 const size = fs.statSync(outFile).size;
 console.log(`\n[build] ${outFile} (${(size / 1024).toFixed(1)} KB)`);

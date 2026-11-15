@@ -81,6 +81,7 @@ const GROUPS = [
     ['inlineImages', '回答内配图', '预览图片直链，或从 Wikimedia Commons 获取配图'],
     ['weatherCards', '天气卡片', '显示实时天气与预报'],
     ['mapCards', '地图卡片', '在地图上展示地点和路线入口'],
+    ['referenceCards', '介绍与推荐卡片', '提供延伸阅读、推荐资源和站内搜索入口'],
   ]],
 ];
 

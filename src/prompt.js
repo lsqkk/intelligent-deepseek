@@ -58,7 +58,12 @@ export function getProtocol(settings) {
     : (en
       ? 'J. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.'
       : 'J. 地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。');
-  return [trigger, base, images, weather, map, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
+  const references = settings?.referenceCards === false
+    ? (en ? 'K. Use ordinary links instead of dsui-reference blocks.' : 'K. 当前关闭介绍与推荐卡片，请用普通链接，勿输出 dsui-reference 块。')
+    : (en
+      ? 'K. Use up to 3 dsui-reference fenced blocks when requested or when a specific resource helps the user learn more or act on a recommendation. One JSON object per block: {"title":"Leaflet","url":"https://leafletjs.com/","description":"Docs and examples","category":"homepage"} (description and category optional; use a known public HTTPS URL, never guess). If the URL is unknown, use {"query":"The Three-Body Problem Liu Cixin","category":"book"} for search. Categories: encyclopedia, book, answer, homepage, article, resource. Use specific public search terms. Keep essential information and citations in the reply; use ordinary links for citations and skip cards for text-only requests.'
+      : 'K. 用户要求卡片，或具体资源有助于深入了解、采纳推荐时，用 dsui-reference 围栏块，每块一个 JSON 对象，每次最多 3 张。知道可靠的公开 HTTPS 网址时用 {"title":"Leaflet","url":"https://leafletjs.com/","description":"文档与示例","category":"homepage"}（description、category 可省略）。网址不确定时用 {"query":"三体 刘慈欣","category":"book"} 生成搜索入口，勿猜网址。类别：encyclopedia（百科）、book（图书）、answer（问答）、homepage（主页）、article（文章）、resource（其他资源）。关键词应具体且不含隐私。关键说明和引用留在正文，引用用普通链接；用户要求纯文字时不用卡片。');
+  return [trigger, base, images, weather, map, references, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
 }
 
 /** 把协议追加到用户 prompt 末尾；若已有旧注入则先剥离，避免重复累积 */

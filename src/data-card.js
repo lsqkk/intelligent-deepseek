@@ -1,8 +1,10 @@
 import { mountMap, readMap } from './map-card.js';
+import { mountReference, readReference } from './reference-card.js';
 import { mountWeather, readWeather } from './weather-card.js';
 
 const formats = {
   'dsui-map': { read: readMap, mount: mountMap },
+  'dsui-reference': { read: readReference, mount: mountReference },
   'dsui-weather': { read: readWeather, mount: (host, request) => { mountWeather(host, request).catch(() => {}); } },
 };
 

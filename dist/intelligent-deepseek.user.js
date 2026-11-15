@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.5.5
+// @version      1.6.0
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -33379,6 +33379,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     inlineImages: true,
     weatherCards: true,
     mapCards: true,
+    referenceCards: true,
     renderPlainHtml: false,
     allowWidgetSend: true,
     widgetSendMode: "draft",
@@ -33493,7 +33494,8 @@ When you have a subject but no reliable direct image URL, use a \`\`\`dsui-image
     const images = settings?.inlineImages === false ? en ? "H. Inline image enhancements are off for this session. Do not emit dsui-image blocks." : "H. 当前关闭回答内配图增强，不要输出 dsui-image 块。" : en ? EN_IMAGES : ZH_IMAGES;
     const weather = settings?.weatherCards === false ? en ? "I. Weather cards are off. Do not emit dsui-weather blocks; answer in text and do not invent values." : "I. 当前关闭天气卡，不要输出 dsui-weather 块；请用正文回答，勿编造天气数据。" : en ? 'I. For current or forecast weather, use a dsui-weather fenced JSON block like {"city":"Beijing","days":5} (1–7 days, or "date":"YYYY-MM-DD" for one specific date). The client fetches weather; do not invent values.' : 'I. 实况或预报用 dsui-weather 围栏 JSON 块，如 {"city":"北京","days":5}（1–7 天，指定某天可用 "date":"YYYY-MM-DD"）。由客户端查天气，勿编造数值。';
     const map = settings?.mapCards === false ? en ? "J. Map cards are off. Do not emit dsui-map blocks; give places and routes in the reply text." : "J. 当前关闭地图卡，不要输出 dsui-map 块；地点和路线请写在正文里。" : en ? 'J. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.' : 'J. 地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。';
-    return [trigger, base, images, weather, map, custom && `${label}
+    const references = settings?.referenceCards === false ? en ? "K. Use ordinary links instead of dsui-reference blocks." : "K. 当前关闭介绍与推荐卡片，请用普通链接，勿输出 dsui-reference 块。" : en ? 'K. Use up to 3 dsui-reference fenced blocks when requested or when a specific resource helps the user learn more or act on a recommendation. One JSON object per block: {"title":"Leaflet","url":"https://leafletjs.com/","description":"Docs and examples","category":"homepage"} (description and category optional; use a known public HTTPS URL, never guess). If the URL is unknown, use {"query":"The Three-Body Problem Liu Cixin","category":"book"} for search. Categories: encyclopedia, book, answer, homepage, article, resource. Use specific public search terms. Keep essential information and citations in the reply; use ordinary links for citations and skip cards for text-only requests.' : 'K. 用户要求卡片，或具体资源有助于深入了解、采纳推荐时，用 dsui-reference 围栏块，每块一个 JSON 对象，每次最多 3 张。知道可靠的公开 HTTPS 网址时用 {"title":"Leaflet","url":"https://leafletjs.com/","description":"文档与示例","category":"homepage"}（description、category 可省略）。网址不确定时用 {"query":"三体 刘慈欣","category":"book"} 生成搜索入口，勿猜网址。类别：encyclopedia（百科）、book（图书）、answer（问答）、homepage（主页）、article（文章）、resource（其他资源）。关键词应具体且不含隐私。关键说明和引用留在正文，引用用普通链接；用户要求纯文字时不用卡片。';
+    return [trigger, base, images, weather, map, references, custom && `${label}
 ${custom}`].filter(Boolean).join("\n");
   }
   function applyInjection(prompt, settings) {
@@ -33578,6 +33580,7 @@ ${PROMPT_END}`;
   var INJECTED_KEY = "__dsui_injected_sessions_v1";
   var installed = false;
   var pendingInjectedSessions = {};
+  var CARD_FIELDS = ["inlineImages", "weatherCards", "mapCards", "referenceCards"];
   function loadInjectedSessions() {
     try {
       const raw = localStorage.getItem(INJECTED_KEY);
@@ -33587,13 +33590,13 @@ ${PROMPT_END}`;
     }
     return { ...pendingInjectedSessions };
   }
-  function markSessionInjected(sessionId, { protocolRevision, inlineImages, weatherCards, mapCards }, sessions) {
+  function markSessionInjected(sessionId, settings, sessions) {
     if (!sessionId) return;
     const injectedSessions = {
       ...sessions,
       [sessionId]: {
-        revision: protocolRevision ?? 0,
-        cards: { inlineImages, weatherCards, mapCards }
+        revision: settings.protocolRevision ?? 0,
+        cards: Object.fromEntries(CARD_FIELDS.map((key) => [key, settings[key] ?? DEFAULT_SETTINGS[key]]))
       }
     };
     try {
@@ -33792,9 +33795,9 @@ ${PROMPT_END}`;
     if (!shouldInjectPrompt(settings, sessionId, sessions)) return body;
     let protocolSettings = settings;
     if (sessionId && Object.hasOwn(sessions, sessionId)) {
-      const cards = sessions[sessionId]?.cards ?? DEFAULT_SETTINGS;
-      const { inlineImages, weatherCards, mapCards } = cards;
-      protocolSettings = { ...settings, inlineImages, weatherCards, mapCards };
+      const cards = sessions[sessionId]?.cards;
+      protocolSettings = { ...settings };
+      for (const key of CARD_FIELDS) protocolSettings[key] = cards?.[key] ?? DEFAULT_SETTINGS[key];
     }
     const nextPrompt = applyInjection(parsed.prompt, protocolSettings);
     if (nextPrompt === parsed.prompt) return body;
@@ -34530,6 +34533,29 @@ th[aria-sort="descending"] > .dsui-table-sort::before { content: '↓'; }
 
 .dsui-data-card { margin: 12px 0; min-width: 0; }
 .dsui-data-card[hidden], .dsui-map-canvas[hidden] { display: none !important; }
+.ds-markdown .dsui-reference .dsui-reference-link {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+.ds-markdown .dsui-reference .dsui-reference-link:hover {
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+.ds-markdown .dsui-reference-link:hover .dsui-reference-title { text-decoration: underline; }
+.ds-markdown .dsui-reference-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.dsui-reference-body { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.dsui-reference-title { line-height: 1.35; }
+.dsui-reference-source, .dsui-reference-description { color: color-mix(in srgb, currentColor 76%, transparent); }
+.dsui-reference-source { font-size: 12px; }
+.dsui-reference-description { font-size: 13px; }
+.dsui-reference-arrow { flex: none; }
 .dsui-map-canvas { height: clamp(220px, 42vw, 360px); border-radius: 12px; isolation: isolate; }
 .dsui-map-canvas img.leaflet-tile { margin: 0 !important; border-radius: 0 !important; }
 .dsui-map-canvas a { color: #0958a5; }
@@ -36280,6 +36306,77 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     };
   }
 
+  // src/reference-card.js
+  var CATEGORIES = {
+    encyclopedia: "百科",
+    book: "图书",
+    answer: "问答",
+    homepage: "主页",
+    article: "文章",
+    resource: "资源"
+  };
+  var SEARCH_SOURCES = {
+    encyclopedia: ["百度百科", "https://baike.baidu.com/search/word", "word"],
+    book: ["豆瓣读书", "https://search.douban.com/book/subject_search?cat=1001", "search_text"],
+    answer: ["知乎", "https://www.zhihu.com/search?type=content", "q"]
+  };
+  var WEB_SEARCH = ["Bing", "https://www.bing.com/search", "q"];
+  function readText(value, maxLength) {
+    return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+  }
+  function readWebUrl(value) {
+    if (typeof value !== "string" || value.length > 4096) return null;
+    const text = value.trim();
+    if (!/^https?:\/\/[^/?#]+/i.test(text) || /[\s\\\u0000-\u001f\u007f]/.test(text)) return null;
+    try {
+      const url = new URL(text);
+      return url.username || url.password ? null : url;
+    } catch {
+      return null;
+    }
+  }
+  function readReference(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const { category } = value;
+    const label = typeof category === "string" && Object.hasOwn(CATEGORIES, category) ? CATEGORIES[category] : "";
+    const description = readText(value.description, 240);
+    if (Object.hasOwn(value, "url")) {
+      const url2 = readWebUrl(value.url);
+      const title = readText(value.title, 160);
+      if (!url2 || !title) return null;
+      return { title, description, href: url2.href, source: url2.host, label };
+    }
+    const query = readText(value.query, 160);
+    if (!query || !label) return null;
+    const [source, endpoint, param] = Object.hasOwn(SEARCH_SOURCES, category) ? SEARCH_SOURCES[category] : WEB_SEARCH;
+    const url = new URL(endpoint);
+    url.searchParams.set(param, query);
+    return { title: query, description, href: url.href, source: `${source}搜索`, label };
+  }
+  function appendText(parent, tag, text, className) {
+    const element = document.createElement(tag);
+    element.className = className;
+    element.textContent = text;
+    parent.append(element);
+    return element;
+  }
+  function mountReference(host, { title, description, href, source, label }) {
+    const link = document.createElement("a");
+    link.className = "dsui-reference-link";
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    const body = document.createElement("span");
+    body.className = "dsui-reference-body";
+    appendText(body, "span", label ? `${label} · ${source}` : source, "dsui-reference-source");
+    appendText(body, "strong", title, "dsui-reference-title");
+    if (description) appendText(body, "span", description, "dsui-reference-description");
+    link.append(body);
+    appendText(link, "span", "↗", "dsui-reference-arrow").setAttribute("aria-hidden", "true");
+    host.append(link);
+    host.hidden = false;
+  }
+
   // src/weather-card.js
   var forecasts = /* @__PURE__ */ new Map();
   var FRESH_MS = 5 * 60 * 1e3;
@@ -36334,7 +36431,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     [[71, 73, 75, 77, 85, 86], "❄ 雪"],
     [[95, 96, 99], "⛈ 雷暴"]
   ].flatMap(([codes, label]) => codes.map((code) => [code, label])));
-  function appendText(parent, tag, text, className) {
+  function appendText2(parent, tag, text, className) {
     const element = document.createElement(tag);
     if (className) element.className = className;
     element.textContent = text;
@@ -36349,24 +36446,24 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     const indices = daily.time.map((day, index) => !request.date || day === request.date ? index : -1).filter((i) => i >= 0 && Number.isFinite(daily.temperature_2m_min?.[i]) && Number.isFinite(daily.temperature_2m_max?.[i]));
     if (!indices.length) return;
     const title = [...new Set([place.name, place.admin1, place.country].filter(Boolean))].join(" · ");
-    const header = appendText(host, "div", "", "dsui-weather-header");
-    appendText(header, "strong", title || request.city);
+    const header = appendText2(host, "div", "", "dsui-weather-header");
+    appendText2(header, "strong", title || request.city);
     if (Number.isFinite(current?.temperature_2m)) {
-      appendText(header, "span", [CONDITIONS.get(current.weather_code), `${Math.round(current.temperature_2m)} °C`].filter(Boolean).join(" "));
+      appendText2(header, "span", [CONDITIONS.get(current.weather_code), `${Math.round(current.temperature_2m)} °C`].filter(Boolean).join(" "));
     }
-    const days = appendText(host, "ul", "", "dsui-weather-days");
+    const days = appendText2(host, "ul", "", "dsui-weather-days");
     for (const i of indices) {
-      const day = appendText(days, "li", "");
-      const time = appendText(day, "time", daily.time[i].slice(5));
+      const day = appendText2(days, "li", "");
+      const time = appendText2(day, "time", daily.time[i].slice(5));
       time.dateTime = daily.time[i];
-      appendText(day, "span", CONDITIONS.get(daily.weather_code?.[i]) ?? "—");
-      appendText(day, "span", `${Math.round(daily.temperature_2m_min[i])}–${Math.round(daily.temperature_2m_max[i])} °C`);
+      appendText2(day, "span", CONDITIONS.get(daily.weather_code?.[i]) ?? "—");
+      appendText2(day, "span", `${Math.round(daily.temperature_2m_min[i])}–${Math.round(daily.temperature_2m_max[i])} °C`);
       const chance = daily.precipitation_probability_max?.[i];
-      if (Number.isFinite(chance)) appendText(day, "small", `降水 ${chance}%`);
+      if (Number.isFinite(chance)) appendText2(day, "small", `降水 ${chance}%`);
     }
-    const footer = appendText(host, "div", "", "dsui-weather-source");
-    if (current?.time) appendText(footer, "span", `当地时间 ${current.time.replace("T", " ")} · `);
-    const source = appendText(footer, "a", "Open-Meteo ↗");
+    const footer = appendText2(host, "div", "", "dsui-weather-source");
+    if (current?.time) appendText2(footer, "span", `当地时间 ${current.time.replace("T", " ")} · `);
+    const source = appendText2(footer, "a", "Open-Meteo ↗");
     source.href = "https://open-meteo.com/";
     source.target = "_blank";
     source.rel = "noopener noreferrer";
@@ -36376,6 +36473,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
   // src/data-card.js
   var formats = {
     "dsui-map": { read: readMap, mount: mountMap },
+    "dsui-reference": { read: readReference, mount: mountReference },
     "dsui-weather": { read: readWeather, mount: (host, request) => {
       mountWeather(host, request).catch(() => {
       });
@@ -36681,7 +36779,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.5.5";
+  var VERSION = false ? "dev" : "1.6.0";
   var GROUPS = [
     ["常规", [
       ["enabled", "启用 Intelligent UI", "自动注入界面协议并渲染交互组件"],
@@ -36696,7 +36794,8 @@ select:focus, textarea:focus { border-color: var(--accent); }
     ["新会话的回答内卡片", [
       ["inlineImages", "回答内配图", "预览图片直链，或从 Wikimedia Commons 获取配图"],
       ["weatherCards", "天气卡片", "显示实时天气与预报"],
-      ["mapCards", "地图卡片", "在地图上展示地点和路线入口"]
+      ["mapCards", "地图卡片", "在地图上展示地点和路线入口"],
+      ["referenceCards", "介绍与推荐卡片", "提供延伸阅读、推荐资源和站内搜索入口"]
     ]]
   ];
   function installSettingsUI({ getSettings: getSettings2 }) {
@@ -36857,7 +36956,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.5.5", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.6.0", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -36876,7 +36975,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.5.5",
+      version: "1.6.0",
       getSettings,
       saveSettings,
       resetSettings: () => saveSettings(DEFAULT_SETTINGS),
@@ -36886,7 +36985,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.5.5",
+          version: "1.6.0",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

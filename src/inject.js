@@ -16,6 +16,7 @@ const INJECTED_KEY = '__dsui_injected_sessions_v1';
 
 let installed = false;
 let pendingInjectedSessions = {};
+const CARD_FIELDS = ['inlineImages', 'weatherCards', 'mapCards', 'referenceCards'];
 
 function loadInjectedSessions() {
   try {
@@ -26,13 +27,13 @@ function loadInjectedSessions() {
   return { ...pendingInjectedSessions };
 }
 
-function markSessionInjected(sessionId, { protocolRevision, inlineImages, weatherCards, mapCards }, sessions) {
+function markSessionInjected(sessionId, settings, sessions) {
   if (!sessionId) return;
   const injectedSessions = {
     ...sessions,
     [sessionId]: {
-      revision: protocolRevision ?? 0,
-      cards: { inlineImages, weatherCards, mapCards },
+      revision: settings.protocolRevision ?? 0,
+      cards: Object.fromEntries(CARD_FIELDS.map((key) => [key, settings[key] ?? DEFAULT_SETTINGS[key]])),
     },
   };
   try {
@@ -266,10 +267,10 @@ function injectIntoJsonBody(body, settings) {
   if (!shouldInjectPrompt(settings, sessionId, sessions)) return body;
   let protocolSettings = settings;
   if (sessionId && Object.hasOwn(sessions, sessionId)) {
-    // 旧版本只记录是否已注入，沿用默认支持的三种卡片。
-    const cards = sessions[sessionId]?.cards ?? DEFAULT_SETTINGS;
-    const { inlineImages, weatherCards, mapCards } = cards;
-    protocolSettings = { ...settings, inlineImages, weatherCards, mapCards };
+    // 旧记录缺少卡片选项时沿用默认值。
+    const cards = sessions[sessionId]?.cards;
+    protocolSettings = { ...settings };
+    for (const key of CARD_FIELDS) protocolSettings[key] = cards?.[key] ?? DEFAULT_SETTINGS[key];
   }
   const nextPrompt = applyInjection(parsed.prompt, protocolSettings);
   if (nextPrompt === parsed.prompt) return body;

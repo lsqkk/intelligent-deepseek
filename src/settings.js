@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   inlineImages: true,
   weatherCards: true,
   mapCards: true,
+  referenceCards: true,
   renderPlainHtml: false,
   allowWidgetSend: true,
   widgetSendMode: 'draft',

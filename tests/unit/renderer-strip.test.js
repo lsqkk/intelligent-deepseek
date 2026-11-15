@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { stripInjectionFromNode } from '../../src/renderer.js';
 import { applyInjection, PROMPT_START } from '../../src/prompt.js';
 
-const injected = applyInjection('原问题', { injectPrompt: true, protocolLanguage: 'zh', customProtocol: '' });
+const injected = applyInjection('原问题', { enabled: true, protocolLanguage: 'zh', customProtocol: '' });
 
 describe('user bubble fallback cleaning', () => {
   it('removes an injection block split across multiple text nodes', () => {
@@ -30,7 +30,7 @@ describe('user bubble fallback cleaning', () => {
     const userText = '请解释 ⟦DS-UI v1⟧ 这段 ⟦/DS-UI⟧ 标记';
     const root = document.createElement('div');
     root.textContent = applyInjection(userText, {
-      injectPrompt: true,
+      enabled: true,
       protocolLanguage: 'zh',
       customProtocol: '',
     });

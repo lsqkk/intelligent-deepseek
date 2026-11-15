@@ -7,18 +7,24 @@ const STORAGE_KEY = '__dsui_settings_v1';
 
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
-  injectPrompt: true,
   injectEveryTurn: false,
-  autoRender: true,
+  tableFullWidth: true,
+  tableSort: true,
+  tableExport: true,
+  inlineImages: true,
+  weatherCards: true,
+  mapCards: true,
   renderPlainHtml: false,
   allowWidgetSend: true,
   widgetSendMode: 'draft',
   protocolLanguage: 'zh',
   visualPreference: 'auto',
   customProtocol: '',
-  showFab: true,
+  protocolRevision: 0,
   debug: false,
 });
+
+const PROTOCOL_FIELDS = ['inlineImages', 'weatherCards', 'mapCards', 'protocolLanguage', 'visualPreference', 'customProtocol'];
 
 function gmGet(key) {
   try {
@@ -54,13 +60,18 @@ export function loadSettings() {
 }
 
 export function saveSettings(settings) {
+  const previous = loadSettings();
   const normalized = normalize(settings);
+  normalized.protocolRevision = PROTOCOL_FIELDS.some((key) => normalized[key] !== previous[key])
+    ? Math.max(Date.now(), previous.protocolRevision + 1)
+    : previous.protocolRevision;
   const text = JSON.stringify(normalized);
   if (!gmSet(STORAGE_KEY, normalized)) {
     try {
       localStorage.setItem(STORAGE_KEY, text);
     } catch {}
   }
+  window.dispatchEvent(new Event('dsui:settings-changed'));
   return normalized;
 }
 

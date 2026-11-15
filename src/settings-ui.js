@@ -1,6 +1,6 @@
 /** 悬浮设置按钮 + 设置面板（Shadow DOM 隔离样式）+ toast */
 
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings.js';
+import { DEFAULT_SETTINGS, saveSettings, updateSettings } from './settings.js';
 import { ensureToast } from './styles.js';
 
 let toastTimer = null;
@@ -16,12 +16,13 @@ export function showToast(text, duration = 2000) {
 const PANEL_CSS = `
 :host { all: initial; }
 * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-.wrap {  position: fixed;
+.wrap { position: fixed;
   right: 18px;
-  bottom: 142px;
-  width: min(336px, calc(100vw - 36px));
-  max-height: min(76vh, 640px);
+  bottom: min(142px, 22dvh);
+  width: min(360px, calc(100vw - 36px));
+  max-height: min(74dvh, 640px);
   overflow: auto;
+  scrollbar-width: none;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--bg);
@@ -31,6 +32,7 @@ const PANEL_CSS = `
   padding: 14px 14px 12px;
   animation: in .16s ease-out;
 }
+.wrap::-webkit-scrollbar { display: none; }
 @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 :host { --bg: #fff; --fg: #1f2329; --muted: #7b818b; --line: #e4e7ec; --soft: #f6f7f9; --accent: #4d6bfe; }
 @media (prefers-color-scheme: dark) {
@@ -42,7 +44,9 @@ const PANEL_CSS = `
 .ver { margin-left: auto; font-size: 11px; color: var(--muted); }
 .close { border: 0; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1; }
 .row { display: flex; align-items: flex-start; gap: 9px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
-.row:last-of-type { border-bottom: 0; }
+.group { margin-bottom: 14px; }
+.group-title { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; }
+.group .row:last-child { border-bottom: 0; }
 .row label { font-size: 12.5px; cursor: pointer; line-height: 1.45; }
 .row .desc { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
 .switch { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; flex: 0 0 auto; margin: 0; transition: background .15s ease; }
@@ -56,27 +60,34 @@ textarea { min-height: 58px; resize: vertical; line-height: 1.5; }
 select:focus, textarea:focus { border-color: var(--accent); }
 .foot { display: flex; gap: 8px; margin-top: 12px; }
 .btn { flex: 1; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); color: var(--fg); font-size: 12px; padding: 7px 0; cursor: pointer; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
 
 const VERSION = typeof __DS_VERSION__ === 'undefined' ? 'dev' : __DS_VERSION__;
 
-const TOGGLES = [
-  { key: 'enabled', label: '启用 Intelligent UI', desc: '总开关：关闭后不注入、不渲染' },
-  { key: 'injectPrompt', label: '自动注入界面协议', desc: '新会话首条消息注入一次（推荐）' },
-  { key: 'injectEveryTurn', label: '每轮都注入', desc: '默认关闭；开启后每轮携带协议，更耗 token' },
-  { key: 'autoRender', label: '自动渲染 dsui 代码块', desc: '流式生成时实时刷新为可交互 iframe' },
-  { key: 'renderPlainHtml', label: '同时渲染普通 html 完整文档', desc: '模型没按协议输出时的兜底，可能误伤代码展示' },
-  { key: 'allowWidgetSend', label: '允许组件回传消息', desc: '组件可把你的选择带回输入框，继续对话' },
-  { key: 'showFab', label: '显示设置按钮', desc: '默认在输入框附件按钮左侧，关闭后可用油猴菜单打开' },
+const GROUPS = [
+  ['常规', [
+    ['enabled', '启用 Intelligent UI', '自动注入界面协议并渲染交互组件'],
+    ['injectEveryTurn', '每轮都注入', '开启后每条消息都会携带协议'],
+    ['renderPlainHtml', '渲染普通 HTML 完整文档', '模型未按协议输出时的兜底，也会渲染教程中的完整 HTML'],
+    ['allowWidgetSend', '允许组件回传消息', '组件可把你的选择带回输入框'],
+  ]],
+  ['表格', [
+    ['tableFullWidth', '表格铺满回答区域', '超宽表格可横向滚动'],
+    ['tableSort', '按列排序', '点击表头切换升序、降序和原始顺序'],
+    ['tableExport', '复制和下载表格', '提供复制、CSV 和 XLSX'],
+  ]],
+  ['回答内卡片', [
+    ['inlineImages', '回答内配图', '预览图片直链，或从 Wikimedia Commons 获取配图'],
+    ['weatherCards', '天气卡片', '显示实时天气与预报'],
+    ['mapCards', '地图卡片', '在地图上展示地点和路线入口'],
+  ]],
 ];
 
 export function installSettingsUI({ getSettings }) {
   let panelHost = null;
-  let fab = null;
-  let fabPlacementTimer = null;
+  const fab = document.createElement('button');
 
   const openPanel = () => {
     if (panelHost?.isConnected) {
@@ -86,7 +97,6 @@ export function installSettingsUI({ getSettings }) {
     panelHost = document.createElement('div');
     panelHost.id = 'dsui-settings-host';
     const shadow = panelHost.attachShadow({ mode: 'open' });
-    const settings = getSettings();
     shadow.innerHTML = `
       <style>${PANEL_CSS}</style>
       <div class="wrap" role="dialog" aria-label="Intelligent UI 设置">
@@ -97,6 +107,7 @@ export function installSettingsUI({ getSettings }) {
           <button class="close" type="button" aria-label="关闭">✕</button>
         </div>
         <div class="body"></div>
+        <h2 class="group-title">界面偏好</h2>
         <div class="field">
           <label class="label" for="dsui-visual-preference">何时生成交互界面</label>
           <select id="dsui-visual-preference" data-field="visualPreference">
@@ -124,79 +135,43 @@ export function installSettingsUI({ getSettings }) {
           <textarea id="dsui-custom-protocol" data-field="customProtocol" placeholder="例如：金额用人民币；默认显示月度趋势。"></textarea>
         </div>
         <div class="foot">
-          <button class="btn primary" type="button" data-act="save">保存</button>
           <button class="btn" type="button" data-act="reset">恢复默认</button>
         </div>
-        <div class="hint">默认在新会话的首条消息应用界面偏好。开启「每轮都注入」后，当前会话的下一条消息也会携带新设置。</div>
+        <div class="hint">改动即时保存；界面偏好在下一条消息发送时应用。</div>
       </div>
     `;
 
-    // 渲染开关行
     const body = shadow.querySelector('.body');
-    for (const item of TOGGLES) {
-      const row = document.createElement('div');
-      row.className = 'row';
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.className = 'switch';
-      input.checked = Boolean(settings[item.key]);
-      input.dataset.field = item.key;
-      const label = document.createElement('label');
-      input.id = `dsui-setting-${item.key}`;
-      label.htmlFor = input.id;
-      label.innerHTML = `${item.label}<span class="desc">${item.desc}</span>`;
-      row.append(input, label);
-      body.appendChild(row);
+    for (const [title, items] of GROUPS) {
+      const group = document.createElement('section');
+      group.className = 'group';
+      group.innerHTML = `<h2 class="group-title">${title}</h2>`;
+      for (const [key, label, desc] of items) {
+        group.insertAdjacentHTML('beforeend', `
+          <div class="row">
+            <input type="checkbox" class="switch" id="dsui-setting-${key}" data-field="${key}">
+            <label for="dsui-setting-${key}">${label}<span class="desc">${desc}</span></label>
+          </div>
+        `);
+      }
+      body.appendChild(group);
     }
-
-    const langSelect = shadow.querySelector('[data-field="protocolLanguage"]');
-    const visualPreference = shadow.querySelector('[data-field="visualPreference"]');
-    visualPreference.value = settings.visualPreference;
-    const widgetSendMode = shadow.querySelector('[data-field="widgetSendMode"]');
-    widgetSendMode.value = settings.widgetSendMode;
-    langSelect.value = settings.protocolLanguage === 'en' ? 'en' : 'zh';
-    const custom = shadow.querySelector('[data-field="customProtocol"]');
-    custom.value = settings.customProtocol || '';
-
+    const fields = shadow.querySelectorAll('[data-field]');
+    const applyToForm = (settings) => {
+      for (const field of fields) {
+        if (field.type === 'checkbox') field.checked = settings[field.dataset.field];
+        else field.value = settings[field.dataset.field];
+      }
+    };
+    applyToForm(getSettings());
+    for (const field of fields) {
+      const saveField = () => updateSettings({
+        [field.dataset.field]: field.type === 'checkbox' ? field.checked : field.value,
+      });
+      field.addEventListener(field.tagName === 'TEXTAREA' ? 'input' : 'change', saveField);
+    }
     shadow.querySelector('.close').addEventListener('click', closePanel);
-    shadow.querySelector('[data-act="reset"]').addEventListener('click', () => {
-      const defaults = { ...DEFAULT_SETTINGS };
-      applyToForm(defaults);
-      save(defaults);
-    });
-    shadow.querySelector('[data-act="save"]').addEventListener('click', () => {
-      save(readForm());
-    });
-
-    const applyToForm = (s) => {
-      shadow.querySelectorAll('input[data-field]').forEach((input) => {
-        input.checked = Boolean(s[input.dataset.field]);
-      });
-      langSelect.value = s.protocolLanguage === 'en' ? 'en' : 'zh';
-      visualPreference.value = s.visualPreference;
-      widgetSendMode.value = s.widgetSendMode;
-      custom.value = s.customProtocol || '';
-    };
-
-    const readForm = () => {
-      const next = { ...getSettings() };
-      shadow.querySelectorAll('input[data-field]').forEach((input) => {
-        next[input.dataset.field] = input.checked;
-      });
-      next.protocolLanguage = langSelect.value;
-      next.visualPreference = visualPreference.value;
-      next.widgetSendMode = widgetSendMode.value;
-      next.customProtocol = custom.value.trim();
-      return next;
-    };
-
-    const save = (next) => {
-      const saved = saveSettings(next);
-      window.dispatchEvent(new CustomEvent('dsui:settings-changed', { detail: saved }));
-      syncFab(saved);
-      showToast('Intelligent UI 设置已保存');
-      closePanel();
-    };
+    shadow.querySelector('[data-act="reset"]').addEventListener('click', () => applyToForm(saveSettings(DEFAULT_SETTINGS)));
 
     // Esc 关闭
     const onKey = (event) => {
@@ -206,7 +181,7 @@ export function installSettingsUI({ getSettings }) {
     document.addEventListener('keydown', onKey, true);
 
     document.body.appendChild(panelHost);
-    fab?.classList.add('is-open');
+    fab.classList.add('is-open');
   };
 
   const closePanel = () => {
@@ -215,46 +190,16 @@ export function installSettingsUI({ getSettings }) {
     if (shadow?.__onKey) document.removeEventListener('keydown', shadow.__onKey, true);
     panelHost.remove();
     panelHost = null;
-    fab?.classList.remove('is-open');
-  };
-
-  const syncFab = (settings = getSettings()) => {
-    const shouldShow = settings.showFab !== false;
-    if (shouldShow && !fab) {
-      fab = document.createElement('button');
-      fab.id = 'dsui-fab';
-      fab.type = 'button';
-      fab.title = 'Intelligent UI 设置';
-      fab.setAttribute('aria-label', 'Intelligent UI 设置');
-      fab.textContent = '✦';
-      fab.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        openPanel();
-      });
-      document.body.appendChild(fab);
-      placeFab();
-      setTimeout(placeFab, 600);
-      setTimeout(placeFab, 1500);
-      if (!fabPlacementTimer) fabPlacementTimer = setInterval(placeFab, 1200);
-    } else if (!shouldShow && fab) {
-      clearInterval(fabPlacementTimer);
-      fabPlacementTimer = null;
-      fab.remove();
-      fab = null;
-      closePanel();
-    }
+    fab.classList.remove('is-open');
   };
 
   /** 优先放到输入框附件按钮左边；找不到输入框时用右下角悬浮兜底 */
   const placeFab = () => {
-    if (!fab) return;
     const fileInput = document.querySelector('input[type="file"]');
     const uploadRow = fileInput?.parentElement;
     if (uploadRow && uploadRow.querySelector('[role="button"]')) {
       if (fab.parentElement !== uploadRow) uploadRow.insertBefore(fab, uploadRow.firstElementChild);
       fab.classList.remove('dsui-fab-floating');
-      fab.title = 'Intelligent UI 设置（注入协议 / 渲染 / 回传确认）';
       fab.hidden = false;
       return;
     }
@@ -263,6 +208,19 @@ export function installSettingsUI({ getSettings }) {
     fab.hidden = false;
   };
 
-  syncFab();
-  return { openPanel, closePanel, syncFab };
+  fab.id = 'dsui-fab';
+  fab.type = 'button';
+  fab.title = 'Intelligent UI 设置';
+  fab.setAttribute('aria-label', fab.title);
+  fab.textContent = '✦';
+  fab.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openPanel();
+  });
+  placeFab();
+  setTimeout(placeFab, 600);
+  setTimeout(placeFab, 1500);
+  setInterval(placeFab, 1200);
+  return { openPanel, closePanel };
 }

@@ -27,13 +27,15 @@ function loadInjectedSessions() {
   }
 }
 
-function markSessionInjected(sessionId) {
+function markSessionInjected(sessionId, revision) {
   if (!sessionId) return;
-  injectedSessions[sessionId] = Date.now();
+  Object.defineProperty(injectedSessions, sessionId, {
+    value: { at: Date.now(), revision }, enumerable: true, configurable: true, writable: true,
+  });
   const keys = Object.keys(injectedSessions);
   if (keys.length > MAX_TRACKED_SESSIONS) {
     keys
-      .sort((a, b) => Number(injectedSessions[a]) - Number(injectedSessions[b]))
+      .sort((a, b) => (injectedSessions[a]?.at ?? injectedSessions[a]) - (injectedSessions[b]?.at ?? injectedSessions[b]))
       .slice(0, keys.length - MAX_TRACKED_SESSIONS)
       .forEach((key) => delete injectedSessions[key]);
   }
@@ -42,12 +44,12 @@ function markSessionInjected(sessionId) {
   } catch {}
 }
 
-/** 注入策略：默认每个新会话只注入首条消息；injectEveryTurn 开启后才每轮注入 */
+/** 首轮注入；影响协议的设置有变动时，在下一轮更新一次。 */
 export function shouldInjectPrompt(settings, sessionId, injected = injectedSessions) {
-  if (!settings?.enabled || !settings.injectPrompt) return false;
+  if (!settings?.enabled) return false;
   if (settings.injectEveryTurn) return true;
-  if (!sessionId) return true;
-  return !injected[sessionId];
+  if (!sessionId || !Object.hasOwn(injected, sessionId)) return true;
+  return (injected[sessionId]?.revision ?? 0) !== (settings.protocolRevision ?? 0);
 }
 
 export function installInterceptors(getSettings) {
@@ -89,7 +91,7 @@ function patchXHR(getSettings) {
         installXhrResponseCleaner(this, responseDesc, responseTextDesc);
       }
       if (settings?.enabled) {
-        if (settings.injectPrompt && typeof body === 'string' && isCompletion(url)) {
+        if (typeof body === 'string' && isCompletion(url)) {
           body = injectIntoJsonBody(body, settings);
         }
         if (isCompletion(url)) {
@@ -198,7 +200,7 @@ function patchFetch(getSettings) {
     let nextInit = init;
 
     try {
-      if (settings?.enabled && settings.injectPrompt && isCompletion(url)) {
+      if (settings?.enabled && isCompletion(url)) {
         if (
           typeof pageWindow.Request !== 'undefined' &&
           input &&
@@ -262,7 +264,7 @@ function injectIntoJsonBody(body, settings) {
   const nextPrompt = applyInjection(parsed.prompt, settings);
   if (nextPrompt === parsed.prompt) return body;
   parsed.prompt = nextPrompt;
-  markSessionInjected(sessionId);
+  markSessionInjected(sessionId, settings.protocolRevision ?? 0);
   try {
     const pageWindow = getPageWindow();
     pageWindow.__dsuiInjectedCount = (pageWindow.__dsuiInjectedCount || 0) + 1;

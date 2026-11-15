@@ -23,15 +23,12 @@ fs.mkdirSync(outDir, { recursive: true });
 const script = fs.readFileSync(path.join(root, 'dist/intelligent-deepseek.user.js'), 'utf8');
 const settings = {
   enabled: true,
-  injectPrompt: true,
   injectEveryTurn: false,
-  autoRender: true,
   renderPlainHtml: true,
   widgetSendMode: 'send',
   allowWidgetSend: true,
   protocolLanguage: 'zh',
   customProtocol: '',
-  showFab: true,
   debug: true,
 };
 

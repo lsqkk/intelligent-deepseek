@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { shouldInjectPrompt } from '../../src/inject.js';
 
-const base = { enabled: true, injectPrompt: true, injectEveryTurn: false };
+const base = { enabled: true, injectEveryTurn: false };
 
 describe('prompt injection policy', () => {
   it('injects the first message of a new session only', () => {
@@ -16,9 +16,14 @@ describe('prompt injection policy', () => {
     expect(shouldInjectPrompt({ ...base, injectEveryTurn: true }, 'session-a', injected)).toBe(true);
   });
 
-  it('never injects when master switch or injectPrompt is off', () => {
+  it('never injects when the master switch is off', () => {
     expect(shouldInjectPrompt({ ...base, enabled: false }, 'session-a', {})).toBe(false);
-    expect(shouldInjectPrompt({ ...base, injectPrompt: false }, 'session-a', {})).toBe(false);
+  });
+
+  it('updates an existing session once when protocol preferences change', () => {
+    const settings = { ...base, protocolRevision: 10 };
+    expect(shouldInjectPrompt(settings, 'session-a', { 'session-a': 123 })).toBe(true);
+    expect(shouldInjectPrompt(settings, 'session-a', { 'session-a': { at: 124, revision: 10 } })).toBe(false);
   });
 
   it('injects when the session id is unknown', () => {

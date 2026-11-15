@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sanitizeDeep, sanitizeJsonText } from '../../src/sanitize.js';
 import { applyInjection } from '../../src/prompt.js';
 
-const settings = { injectPrompt: true, protocolLanguage: 'zh', customProtocol: '' };
+const settings = { enabled: true, protocolLanguage: 'zh', customProtocol: '' };
 const injected = applyInjection('你好', settings);
 
 describe('history sanitization', () => {

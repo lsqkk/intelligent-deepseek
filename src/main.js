@@ -54,19 +54,9 @@ function registerMenu(ui) {
   try {
     if (typeof GM_registerMenuCommand !== 'function') return;
     GM_registerMenuCommand('✦ Intelligent UI 设置', () => ui.openPanel());
-    GM_registerMenuCommand('切换「自动注入协议」', () => {
-      const next = updateSettings({ injectPrompt: !getSettings().injectPrompt });
-      showToast(next.injectPrompt ? '已开启协议注入' : '已关闭协议注入');
-    });
-    GM_registerMenuCommand('切换「自动渲染界面」', () => {
-      const next = updateSettings({ autoRender: !getSettings().autoRender });
-      showToast(next.autoRender ? '已开启自动渲染' : '已关闭自动渲染');
-      window.dispatchEvent(new CustomEvent('dsui:settings-changed', { detail: next }));
-    });
-    GM_registerMenuCommand('临时停用脚本（恢复原始代码块）', () => {
-      const next = updateSettings({ enabled: false });
-      window.dispatchEvent(new CustomEvent('dsui:settings-changed', { detail: next }));
-      showToast('已临时停用；重新开启请再点一次或刷新页面');
+    GM_registerMenuCommand('切换 Intelligent UI 总开关', () => {
+      const next = updateSettings({ enabled: !getSettings().enabled });
+      showToast(next.enabled ? '已启用 Intelligent UI' : '已停用 Intelligent UI');
     });
   } catch {}
 }
@@ -78,11 +68,7 @@ function installDebugApi(ui) {
     version: __DS_VERSION__,
     getSettings,
     saveSettings,
-    resetSettings: () => {
-      const saved = saveSettings({ ...DEFAULT_SETTINGS });
-      window.dispatchEvent(new CustomEvent('dsui:settings-changed', { detail: saved }));
-      return saved;
-    },
+    resetSettings: () => saveSettings(DEFAULT_SETTINGS),
     openSettings: () => ui.openPanel(),
     previewInjection: (text) => applyInjection(text, getSettings()),
     sendToChat,

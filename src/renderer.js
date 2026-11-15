@@ -17,6 +17,7 @@ export function startRenderer({ getSettings, onToast }) {
 
   const widgets = new Map(); // block element -> Widget
   const tables = new Map();
+  let hiddenFeatures = new Set();
   let theme = detectTheme();
   let scanTimer = null;
   let observer = null;
@@ -38,14 +39,15 @@ export function startRenderer({ getSettings, onToast }) {
   const scan = () => {
     if (stopped) return;
     const settings = getSettings() || {};
-    const enabled = settings.enabled && settings.autoRender;
-    if (!enabled) {
+    if (!settings.enabled) {
       teardownAll();
       return;
     }
 
     const seen = new Set();
     const seenTables = new Set();
+    const disabledBlocks = new Set();
+    const enhanceTables = settings.tableFullWidth || settings.tableSort || settings.tableExport;
     const renderCard = (block, Card, request) => {
       seen.add(block);
       const current = widgets.get(block);
@@ -56,20 +58,29 @@ export function startRenderer({ getSettings, onToast }) {
       card.mount();
     };
     for (const root of findAssistantRoots(document)) {
-      for (const table of root.querySelectorAll('table')) {
-        if (table.closest(SELECTORS.codeBlock) || !table.rows.length) continue;
-        seenTables.add(table);
-        if (!tables.has(table)) tables.set(table, new TableTools(table, onToast));
-        tables.get(table).refresh();
+      if (enhanceTables) {
+        for (const table of root.querySelectorAll('table')) {
+          if (table.closest(SELECTORS.codeBlock) || !table.rows.length) continue;
+          seenTables.add(table);
+          if (!tables.has(table)) tables.set(table, new TableTools(table, onToast));
+          tables.get(table).refresh(settings);
+        }
       }
-      for (const block of root.querySelectorAll('p')) {
-        const request = readDirectImage(block);
-        if (request) renderCard(block, ImageGallery, request);
+      if (settings.inlineImages) {
+        for (const block of root.querySelectorAll('p')) {
+          const request = readDirectImage(block);
+          if (request) renderCard(block, ImageGallery, request);
+        }
       }
       for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
         const lang = readLang(block);
         if (lang === 'dsui-image') {
-          renderCard(block, ImageGallery, readImageRequest(readCode(block)));
+          if (settings.inlineImages) renderCard(block, ImageGallery, readImageRequest(readCode(block)));
+          else disabledBlocks.add(block);
+          continue;
+        }
+        if ((lang === 'dsui-weather' && !settings.weatherCards) || (lang === 'dsui-map' && !settings.mapCards)) {
+          disabledBlocks.add(block);
           continue;
         }
         const dataCard = readDataCard(lang, readCode(block));
@@ -126,6 +137,7 @@ export function startRenderer({ getSettings, onToast }) {
       }
     }
 
+    syncHiddenFeatures(disabledBlocks);
     cleanInjectedUserBubbles();
   };
 
@@ -150,6 +162,14 @@ export function startRenderer({ getSettings, onToast }) {
     return null;
   };
 
+  const syncHiddenFeatures = (next) => {
+    for (const block of hiddenFeatures) {
+      if (!next.has(block)) block.removeAttribute('data-dsui-feature-hidden');
+    }
+    for (const block of next) block.setAttribute('data-dsui-feature-hidden', '');
+    hiddenFeatures = next;
+  };
+
   const teardownAll = () => {
     for (const tools of tables.values()) tools.destroy();
     tables.clear();
@@ -158,6 +178,7 @@ export function startRenderer({ getSettings, onToast }) {
       widgets.delete(block);
       if (block?.isConnected) block.removeAttribute('data-dsui-hidden');
     }
+    syncHiddenFeatures(new Set());
   };
 
   const stopTheme = watchTheme((next) => {

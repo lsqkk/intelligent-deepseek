@@ -60,26 +60,42 @@ export class TableTools {
         button.disabled = false;
       }
     }));
-    table.classList.add('dsui-table');
-    this.placeToolbar();
   }
 
-  placeToolbar() {
+  syncLayout(fullWidth, showToolbar) {
     const table = this.table;
-    const parent = table.parentElement;
-    if (this.scroller !== parent) {
-      this.scroller?.classList.remove('dsui-table-scroll');
-      this.scroller = parent.matches('.ds-scroll-area') ||
-        (parent.matches('div:not(.ds-markdown)') && parent.childElementCount === 1) ? parent : null;
-      if (!this.scroller) {
-        this.scroller = document.createElement('div');
-        this.scroller.dataset.dsuiTableWrapper = '';
-        table.before(this.scroller);
-        this.scroller.append(table);
+    if (!fullWidth || this.scroller !== table.parentElement) {
+      this.clearLayout();
+      if (fullWidth) {
+        this.scroller = this.nativeScroller();
+        if (!this.scroller) {
+          this.wrapper = this.scroller = document.createElement('div');
+          table.before(this.wrapper);
+          this.wrapper.append(table);
+        }
+        this.scroller.classList.add('dsui-table-scroll');
+        table.classList.add('dsui-table');
       }
-      this.scroller.classList.add('dsui-table-scroll');
     }
-    if (this.bar.nextElementSibling !== this.scroller) this.scroller.before(this.bar);
+    const anchor = this.scroller || this.nativeScroller() || table;
+    if (!showToolbar) this.bar.remove();
+    else if (this.bar.nextElementSibling !== anchor) anchor.before(this.bar);
+  }
+
+  nativeScroller() {
+    const parent = this.table.parentElement;
+    return parent.matches('.ds-scroll-area') ||
+      (parent.matches('div:not(.ds-markdown)') && parent.childElementCount === 1) ? parent : null;
+  }
+
+  clearLayout() {
+    this.table.classList.remove('dsui-table');
+    this.scroller?.classList.remove('dsui-table-scroll');
+    if (this.wrapper?.parentNode) {
+      if (this.table.parentNode === this.wrapper) this.wrapper.before(this.table);
+      this.wrapper.remove();
+    }
+    this.scroller = this.wrapper = null;
   }
 
   action(label, run) {
@@ -90,9 +106,9 @@ export class TableTools {
     return button;
   }
 
-  refresh() {
-    this.placeToolbar();
-    const columns = sortableColumns(this.table);
+  refresh({ tableFullWidth, tableExport, tableSort }) {
+    this.syncLayout(tableFullWidth, tableExport);
+    const columns = tableSort ? sortableColumns(this.table) : [];
     for (const [cell, button] of this.headers) {
       if (columns.includes(cell) && button.parentNode === cell) continue;
       if (this.active === cell) this.resetSort();
@@ -168,11 +184,6 @@ export class TableTools {
     this.resetSort();
     for (const button of this.headers.values()) button.remove();
     this.bar.remove();
-    this.table.classList.remove('dsui-table');
-    this.scroller.classList.remove('dsui-table-scroll');
-    if (this.scroller.hasAttribute('data-dsui-table-wrapper') && this.scroller.parentNode) {
-      if (this.table.parentNode === this.scroller) this.scroller.before(this.table);
-      this.scroller.remove();
-    }
+    this.clearLayout();
   }
 }

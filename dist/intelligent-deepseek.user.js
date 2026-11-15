@@ -2,7 +2,7 @@
 // @name         DeepSeek Intelligent UI
 // @name:zh-CN   DeepSeek 智能交互界面
 // @namespace    lsqkk.intelligent-deepseek
-// @version      1.5.1
+// @version      1.5.2
 // @description  Bring GPT-6 Intelligent-UI style interactive HTML rendering to chat.deepseek.com: first-turn protocol injection, streaming dsui widgets, and widget-to-chat actions.
 // @description:zh-CN  给 chat.deepseek.com 引入类似 GPT-6 Intelligent UI 的机制：新会话首条消息注入界面协议、流式渲染可交互 HTML 组件、组件可回传消息继续对话。
 // @author       lsqkk
@@ -33373,18 +33373,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   var STORAGE_KEY = "__dsui_settings_v1";
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
-    injectPrompt: true,
     injectEveryTurn: false,
-    autoRender: true,
+    tableFullWidth: true,
+    tableSort: true,
+    tableExport: true,
+    inlineImages: true,
+    weatherCards: true,
+    mapCards: true,
     renderPlainHtml: false,
     allowWidgetSend: true,
     widgetSendMode: "draft",
     protocolLanguage: "zh",
     visualPreference: "auto",
     customProtocol: "",
-    showFab: true,
+    protocolRevision: 0,
     debug: false
   });
+  var PROTOCOL_FIELDS = ["inlineImages", "weatherCards", "mapCards", "protocolLanguage", "visualPreference", "customProtocol"];
   function gmGet(key) {
     try {
       if (typeof GM_getValue === "function") return GM_getValue(key);
@@ -33420,7 +33425,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     return normalize(parsed);
   }
   function saveSettings(settings) {
+    const previous = loadSettings();
     const normalized = normalize(settings);
+    normalized.protocolRevision = PROTOCOL_FIELDS.some((key) => normalized[key] !== previous[key]) ? Math.max(Date.now(), previous.protocolRevision + 1) : previous.protocolRevision;
     const text = JSON.stringify(normalized);
     if (!gmSet(STORAGE_KEY, normalized)) {
       try {
@@ -33428,6 +33435,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       } catch {
       }
     }
+    window.dispatchEvent(new Event("dsui:settings-changed"));
     return normalized;
   }
   function updateSettings(patch) {
@@ -33483,13 +33491,15 @@ When you have a subject but no reliable direct image URL, use a \`\`\`dsui-image
     const trigger = preference === "explicit" ? en ? "Only generate a component when explicitly requested." : "仅在用户明确要求交互界面、工具或可视化时生成组件。" : preference === "frequent" ? en ? "Prefer interactive UI for meaningful trends, comparisons and calculations." : "对有实质内容的趋势、比较和计算，优先考虑交互界面。" : en ? "Use UI when requested or when it materially improves the task." : "用户明确要求，或界面能明显帮助理解、计算或决策时，才生成组件。";
     const custom = String(settings?.customProtocol || "").replaceAll(PROMPT_START, "").replaceAll(PROMPT_END, "").trim();
     const label = en ? "Additional presentation preferences (subject to the current request and component requirements)" : "附加呈现偏好（以本轮要求和组件约束为准）";
-    const cards = en ? 'I. For current or forecast weather, use a dsui-weather fenced JSON block like {"city":"Beijing","days":5} (1–7 days, or "date":"YYYY-MM-DD" for one specific date). The client fetches weather; do not invent values. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.' : 'I. 实况或预报用 dsui-weather 围栏 JSON 块，如 {"city":"北京","days":5}（1–7 天，指定某天可用 "date":"YYYY-MM-DD"）。由客户端查天气，勿编造数值。地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。';
-    return [trigger, base, en ? EN_IMAGES : ZH_IMAGES, cards, custom && `${label}
+    const images = settings?.inlineImages === false ? en ? "H. Inline image enhancements are off for this session. Do not emit dsui-image blocks." : "H. 当前关闭回答内配图增强，不要输出 dsui-image 块。" : en ? EN_IMAGES : ZH_IMAGES;
+    const weather = settings?.weatherCards === false ? en ? "I. Weather cards are off. Do not emit dsui-weather blocks; answer in text and do not invent values." : "I. 当前关闭天气卡，不要输出 dsui-weather 块；请用正文回答，勿编造天气数据。" : en ? 'I. For current or forecast weather, use a dsui-weather fenced JSON block like {"city":"Beijing","days":5} (1–7 days, or "date":"YYYY-MM-DD" for one specific date). The client fetches weather; do not invent values.' : 'I. 实况或预报用 dsui-weather 围栏 JSON 块，如 {"city":"北京","days":5}（1–7 天，指定某天可用 "date":"YYYY-MM-DD"）。由客户端查天气，勿编造数值。';
+    const map = settings?.mapCards === false ? en ? "J. Map cards are off. Do not emit dsui-map blocks; give places and routes in the reply text." : "J. 当前关闭地图卡，不要输出 dsui-map 块；地点和路线请写在正文里。" : en ? 'J. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.' : 'J. 地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。';
+    return [trigger, base, images, weather, map, custom && `${label}
 ${custom}`].filter(Boolean).join("\n");
   }
   function applyInjection(prompt, settings) {
     const clean = stripInjection(String(prompt ?? ""));
-    if (!settings?.injectPrompt || !clean.trim()) return clean;
+    if (settings?.enabled === false || !clean.trim()) return clean;
     return `${clean}
 
 ${PROMPT_START}
@@ -33579,12 +33589,17 @@ ${PROMPT_END}`;
       return {};
     }
   }
-  function markSessionInjected(sessionId) {
+  function markSessionInjected(sessionId, revision) {
     if (!sessionId) return;
-    injectedSessions[sessionId] = Date.now();
+    Object.defineProperty(injectedSessions, sessionId, {
+      value: { at: Date.now(), revision },
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
     const keys = Object.keys(injectedSessions);
     if (keys.length > MAX_TRACKED_SESSIONS) {
-      keys.sort((a, b) => Number(injectedSessions[a]) - Number(injectedSessions[b])).slice(0, keys.length - MAX_TRACKED_SESSIONS).forEach((key) => delete injectedSessions[key]);
+      keys.sort((a, b) => (injectedSessions[a]?.at ?? injectedSessions[a]) - (injectedSessions[b]?.at ?? injectedSessions[b])).slice(0, keys.length - MAX_TRACKED_SESSIONS).forEach((key) => delete injectedSessions[key]);
     }
     try {
       localStorage.setItem(INJECTED_KEY, JSON.stringify(injectedSessions));
@@ -33592,10 +33607,10 @@ ${PROMPT_END}`;
     }
   }
   function shouldInjectPrompt(settings, sessionId, injected = injectedSessions) {
-    if (!settings?.enabled || !settings.injectPrompt) return false;
+    if (!settings?.enabled) return false;
     if (settings.injectEveryTurn) return true;
-    if (!sessionId) return true;
-    return !injected[sessionId];
+    if (!sessionId || !Object.hasOwn(injected, sessionId)) return true;
+    return (injected[sessionId]?.revision ?? 0) !== (settings.protocolRevision ?? 0);
   }
   function installInterceptors(getSettings2) {
     if (installed) return;
@@ -33628,7 +33643,7 @@ ${PROMPT_END}`;
           installXhrResponseCleaner(this, responseDesc, responseTextDesc);
         }
         if (settings?.enabled) {
-          if (settings.injectPrompt && typeof body === "string" && isCompletion(url)) {
+          if (typeof body === "string" && isCompletion(url)) {
             body = injectIntoJsonBody(body, settings);
           }
           if (isCompletion(url)) {
@@ -33724,7 +33739,7 @@ ${PROMPT_END}`;
       let nextInput = input;
       let nextInit = init;
       try {
-        if (settings?.enabled && settings.injectPrompt && isCompletion(url)) {
+        if (settings?.enabled && isCompletion(url)) {
           if (typeof pageWindow.Request !== "undefined" && input && typeof input === "object" && input instanceof pageWindow.Request) {
             const text = await input.clone().text();
             const injected = injectIntoJsonBody(text, settings);
@@ -33778,7 +33793,7 @@ ${PROMPT_END}`;
     const nextPrompt = applyInjection(parsed.prompt, settings);
     if (nextPrompt === parsed.prompt) return body;
     parsed.prompt = nextPrompt;
-    markSessionInjected(sessionId);
+    markSessionInjected(sessionId, settings.protocolRevision ?? 0);
     try {
       const pageWindow = getPageWindow();
       pageWindow.__dsuiInjectedCount = (pageWindow.__dsuiInjectedCount || 0) + 1;
@@ -34457,7 +34472,8 @@ svg.leaflet-image-layer.leaflet-interactive path {\r
 		}\r
 	}\r
 
-.md-code-block[data-dsui-hidden="1"] { display: none !important; }
+.md-code-block[data-dsui-hidden="1"],
+.md-code-block[data-dsui-feature-hidden] { display: none !important; }
 [data-dsui-image-source] { display: none !important; }
 .dsui-image-gallery {
   display: grid;
@@ -34487,8 +34503,23 @@ svg.leaflet-image-layer.leaflet-interactive path {\r
 }
 .dsui-image-gallery > a > span { display: block; margin-top: 5px; }
 
-.ds-markdown .dsui-table-scroll { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; contain: inline-size; overflow-x: auto; }
-.ds-markdown .dsui-table-scroll > table.dsui-table { display: table; width: 100%; }
+.ds-markdown .dsui-table-scroll {
+  /* Override the site's intrinsic width and keep any overflow local to the table. */
+  display: block !important;
+  box-sizing: border-box;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  align-self: stretch;
+  contain: inline-size;
+  overflow-x: auto !important;
+}
+.ds-markdown .dsui-table-scroll > table.dsui-table {
+  display: table !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+}
 .dsui-table-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-bottom: 4px; min-width: 0; max-width: 100%; }
 .dsui-table-tools button:disabled { opacity: .5; cursor: wait; }
 .dsui-table-tools button,
@@ -35918,24 +35949,38 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
           button.disabled = false;
         }
       }));
-      table.classList.add("dsui-table");
-      this.placeToolbar();
     }
-    placeToolbar() {
+    syncLayout(fullWidth, showToolbar) {
       const table = this.table;
-      const parent = table.parentElement;
-      if (this.scroller !== parent) {
-        this.scroller?.classList.remove("dsui-table-scroll");
-        this.scroller = parent.matches(".ds-scroll-area") || parent.matches("div:not(.ds-markdown)") && parent.childElementCount === 1 ? parent : null;
-        if (!this.scroller) {
-          this.scroller = document.createElement("div");
-          this.scroller.dataset.dsuiTableWrapper = "";
-          table.before(this.scroller);
-          this.scroller.append(table);
+      if (!fullWidth || this.scroller !== table.parentElement) {
+        this.clearLayout();
+        if (fullWidth) {
+          this.scroller = this.nativeScroller();
+          if (!this.scroller) {
+            this.wrapper = this.scroller = document.createElement("div");
+            table.before(this.wrapper);
+            this.wrapper.append(table);
+          }
+          this.scroller.classList.add("dsui-table-scroll");
+          table.classList.add("dsui-table");
         }
-        this.scroller.classList.add("dsui-table-scroll");
       }
-      if (this.bar.nextElementSibling !== this.scroller) this.scroller.before(this.bar);
+      const anchor = this.scroller || this.nativeScroller() || table;
+      if (!showToolbar) this.bar.remove();
+      else if (this.bar.nextElementSibling !== anchor) anchor.before(this.bar);
+    }
+    nativeScroller() {
+      const parent = this.table.parentElement;
+      return parent.matches(".ds-scroll-area") || parent.matches("div:not(.ds-markdown)") && parent.childElementCount === 1 ? parent : null;
+    }
+    clearLayout() {
+      this.table.classList.remove("dsui-table");
+      this.scroller?.classList.remove("dsui-table-scroll");
+      if (this.wrapper?.parentNode) {
+        if (this.table.parentNode === this.wrapper) this.wrapper.before(this.table);
+        this.wrapper.remove();
+      }
+      this.scroller = this.wrapper = null;
     }
     action(label, run) {
       const button = document.createElement("button");
@@ -35944,9 +35989,9 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       button.addEventListener("click", run);
       return button;
     }
-    refresh() {
-      this.placeToolbar();
-      const columns = sortableColumns(this.table);
+    refresh({ tableFullWidth, tableExport, tableSort }) {
+      this.syncLayout(tableFullWidth, tableExport);
+      const columns = tableSort ? sortableColumns(this.table) : [];
       for (const [cell, button] of this.headers) {
         if (columns.includes(cell) && button.parentNode === cell) continue;
         if (this.active === cell) this.resetSort();
@@ -36017,12 +36062,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       this.resetSort();
       for (const button of this.headers.values()) button.remove();
       this.bar.remove();
-      this.table.classList.remove("dsui-table");
-      this.scroller.classList.remove("dsui-table-scroll");
-      if (this.scroller.hasAttribute("data-dsui-table-wrapper") && this.scroller.parentNode) {
-        if (this.table.parentNode === this.scroller) this.scroller.before(this.table);
-        this.scroller.remove();
-      }
+      this.clearLayout();
     }
   };
 
@@ -36409,6 +36449,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     installWidgetMessageRouter();
     const widgets = /* @__PURE__ */ new Map();
     const tables = /* @__PURE__ */ new Map();
+    let hiddenFeatures = /* @__PURE__ */ new Set();
     let theme = detectTheme();
     let scanTimer = null;
     let observer = null;
@@ -36428,13 +36469,14 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
     const scan = () => {
       if (stopped) return;
       const settings = getSettings2() || {};
-      const enabled = settings.enabled && settings.autoRender;
-      if (!enabled) {
+      if (!settings.enabled) {
         teardownAll();
         return;
       }
       const seen = /* @__PURE__ */ new Set();
       const seenTables = /* @__PURE__ */ new Set();
+      const disabledBlocks = /* @__PURE__ */ new Set();
+      const enhanceTables = settings.tableFullWidth || settings.tableSort || settings.tableExport;
       const renderCard = (block, Card, request) => {
         seen.add(block);
         const current = widgets.get(block);
@@ -36445,20 +36487,29 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         card.mount();
       };
       for (const root of findAssistantRoots(document)) {
-        for (const table of root.querySelectorAll("table")) {
-          if (table.closest(SELECTORS.codeBlock) || !table.rows.length) continue;
-          seenTables.add(table);
-          if (!tables.has(table)) tables.set(table, new TableTools(table, onToast));
-          tables.get(table).refresh();
+        if (enhanceTables) {
+          for (const table of root.querySelectorAll("table")) {
+            if (table.closest(SELECTORS.codeBlock) || !table.rows.length) continue;
+            seenTables.add(table);
+            if (!tables.has(table)) tables.set(table, new TableTools(table, onToast));
+            tables.get(table).refresh(settings);
+          }
         }
-        for (const block of root.querySelectorAll("p")) {
-          const request = readDirectImage(block);
-          if (request) renderCard(block, ImageGallery, request);
+        if (settings.inlineImages) {
+          for (const block of root.querySelectorAll("p")) {
+            const request = readDirectImage(block);
+            if (request) renderCard(block, ImageGallery, request);
+          }
         }
         for (const block of root.querySelectorAll(SELECTORS.codeBlock)) {
           const lang = readLang(block);
           if (lang === "dsui-image") {
-            renderCard(block, ImageGallery, readImageRequest(readCode(block)));
+            if (settings.inlineImages) renderCard(block, ImageGallery, readImageRequest(readCode(block)));
+            else disabledBlocks.add(block);
+            continue;
+          }
+          if (lang === "dsui-weather" && !settings.weatherCards || lang === "dsui-map" && !settings.mapCards) {
+            disabledBlocks.add(block);
             continue;
           }
           const dataCard = readDataCard(lang, readCode(block));
@@ -36508,6 +36559,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
           widgets.delete(block);
         }
       }
+      syncHiddenFeatures(disabledBlocks);
       cleanInjectedUserBubbles();
     };
     const adoptAdjacentWidget = (block) => {
@@ -36529,6 +36581,13 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
       }
       return null;
     };
+    const syncHiddenFeatures = (next) => {
+      for (const block of hiddenFeatures) {
+        if (!next.has(block)) block.removeAttribute("data-dsui-feature-hidden");
+      }
+      for (const block of next) block.setAttribute("data-dsui-feature-hidden", "");
+      hiddenFeatures = next;
+    };
     const teardownAll = () => {
       for (const tools of tables.values()) tools.destroy();
       tables.clear();
@@ -36537,6 +36596,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
         widgets.delete(block);
         if (block?.isConnected) block.removeAttribute("data-dsui-hidden");
       }
+      syncHiddenFeatures(/* @__PURE__ */ new Set());
     };
     const stopTheme = watchTheme((next) => {
       theme = next;
@@ -36622,12 +36682,13 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
   var PANEL_CSS = `
 :host { all: initial; }
 * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-.wrap {  position: fixed;
+.wrap { position: fixed;
   right: 18px;
-  bottom: 142px;
-  width: min(336px, calc(100vw - 36px));
-  max-height: min(76vh, 640px);
+  bottom: min(142px, 22dvh);
+  width: min(360px, calc(100vw - 36px));
+  max-height: min(74dvh, 640px);
   overflow: auto;
+  scrollbar-width: none;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--bg);
@@ -36637,6 +36698,7 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
   padding: 14px 14px 12px;
   animation: in .16s ease-out;
 }
+.wrap::-webkit-scrollbar { display: none; }
 @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 :host { --bg: #fff; --fg: #1f2329; --muted: #7b818b; --line: #e4e7ec; --soft: #f6f7f9; --accent: #4d6bfe; }
 @media (prefers-color-scheme: dark) {
@@ -36648,7 +36710,9 @@ body.dark #dsui-fab.dsui-fab-floating, html.dark #dsui-fab.dsui-fab-floating {
 .ver { margin-left: auto; font-size: 11px; color: var(--muted); }
 .close { border: 0; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1; }
 .row { display: flex; align-items: flex-start; gap: 9px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
-.row:last-of-type { border-bottom: 0; }
+.group { margin-bottom: 14px; }
+.group-title { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; }
+.group .row:last-child { border-bottom: 0; }
 .row label { font-size: 12.5px; cursor: pointer; line-height: 1.45; }
 .row .desc { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
 .switch { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; flex: 0 0 auto; margin: 0; transition: background .15s ease; }
@@ -36662,24 +36726,31 @@ textarea { min-height: 58px; resize: vertical; line-height: 1.5; }
 select:focus, textarea:focus { border-color: var(--accent); }
 .foot { display: flex; gap: 8px; margin-top: 12px; }
 .btn { flex: 1; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); color: var(--fg); font-size: 12px; padding: 7px 0; cursor: pointer; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .btn:active { transform: translateY(1px); }
 .hint { margin-top: 9px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 `;
-  var VERSION = false ? "dev" : "1.5.1";
-  var TOGGLES = [
-    { key: "enabled", label: "启用 Intelligent UI", desc: "总开关：关闭后不注入、不渲染" },
-    { key: "injectPrompt", label: "自动注入界面协议", desc: "新会话首条消息注入一次（推荐）" },
-    { key: "injectEveryTurn", label: "每轮都注入", desc: "默认关闭；开启后每轮携带协议，更耗 token" },
-    { key: "autoRender", label: "自动渲染 dsui 代码块", desc: "流式生成时实时刷新为可交互 iframe" },
-    { key: "renderPlainHtml", label: "同时渲染普通 html 完整文档", desc: "模型没按协议输出时的兜底，可能误伤代码展示" },
-    { key: "allowWidgetSend", label: "允许组件回传消息", desc: "组件可把你的选择带回输入框，继续对话" },
-    { key: "showFab", label: "显示设置按钮", desc: "默认在输入框附件按钮左侧，关闭后可用油猴菜单打开" }
+  var VERSION = false ? "dev" : "1.5.2";
+  var GROUPS = [
+    ["常规", [
+      ["enabled", "启用 Intelligent UI", "自动注入界面协议并渲染交互组件"],
+      ["injectEveryTurn", "每轮都注入", "开启后每条消息都会携带协议"],
+      ["renderPlainHtml", "渲染普通 HTML 完整文档", "模型未按协议输出时的兜底，也会渲染教程中的完整 HTML"],
+      ["allowWidgetSend", "允许组件回传消息", "组件可把你的选择带回输入框"]
+    ]],
+    ["表格", [
+      ["tableFullWidth", "表格铺满回答区域", "超宽表格可横向滚动"],
+      ["tableSort", "按列排序", "点击表头切换升序、降序和原始顺序"],
+      ["tableExport", "复制和下载表格", "提供复制、CSV 和 XLSX"]
+    ]],
+    ["回答内卡片", [
+      ["inlineImages", "回答内配图", "预览图片直链，或从 Wikimedia Commons 获取配图"],
+      ["weatherCards", "天气卡片", "显示实时天气与预报"],
+      ["mapCards", "地图卡片", "在地图上展示地点和路线入口"]
+    ]]
   ];
   function installSettingsUI({ getSettings: getSettings2 }) {
     let panelHost = null;
-    let fab = null;
-    let fabPlacementTimer = null;
+    const fab = document.createElement("button");
     const openPanel = () => {
       if (panelHost?.isConnected) {
         closePanel();
@@ -36688,7 +36759,6 @@ select:focus, textarea:focus { border-color: var(--accent); }
       panelHost = document.createElement("div");
       panelHost.id = "dsui-settings-host";
       const shadow = panelHost.attachShadow({ mode: "open" });
-      const settings = getSettings2();
       shadow.innerHTML = `
       <style>${PANEL_CSS}</style>
       <div class="wrap" role="dialog" aria-label="Intelligent UI 设置">
@@ -36699,6 +36769,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
           <button class="close" type="button" aria-label="关闭">✕</button>
         </div>
         <div class="body"></div>
+        <h2 class="group-title">界面偏好</h2>
         <div class="field">
           <label class="label" for="dsui-visual-preference">何时生成交互界面</label>
           <select id="dsui-visual-preference" data-field="visualPreference">
@@ -36726,79 +36797,49 @@ select:focus, textarea:focus { border-color: var(--accent); }
           <textarea id="dsui-custom-protocol" data-field="customProtocol" placeholder="例如：金额用人民币；默认显示月度趋势。"></textarea>
         </div>
         <div class="foot">
-          <button class="btn primary" type="button" data-act="save">保存</button>
           <button class="btn" type="button" data-act="reset">恢复默认</button>
         </div>
-        <div class="hint">默认在新会话的首条消息应用界面偏好。开启「每轮都注入」后，当前会话的下一条消息也会携带新设置。</div>
+        <div class="hint">改动即时保存；界面偏好在下一条消息发送时应用。</div>
       </div>
     `;
       const body = shadow.querySelector(".body");
-      for (const item of TOGGLES) {
-        const row = document.createElement("div");
-        row.className = "row";
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.className = "switch";
-        input.checked = Boolean(settings[item.key]);
-        input.dataset.field = item.key;
-        const label = document.createElement("label");
-        input.id = `dsui-setting-${item.key}`;
-        label.htmlFor = input.id;
-        label.innerHTML = `${item.label}<span class="desc">${item.desc}</span>`;
-        row.append(input, label);
-        body.appendChild(row);
+      for (const [title, items] of GROUPS) {
+        const group = document.createElement("section");
+        group.className = "group";
+        group.innerHTML = `<h2 class="group-title">${title}</h2>`;
+        for (const [key, label, desc] of items) {
+          group.insertAdjacentHTML("beforeend", `
+          <div class="row">
+            <input type="checkbox" class="switch" id="dsui-setting-${key}" data-field="${key}">
+            <label for="dsui-setting-${key}">${label}<span class="desc">${desc}</span></label>
+          </div>
+        `);
+        }
+        body.appendChild(group);
       }
-      const langSelect = shadow.querySelector('[data-field="protocolLanguage"]');
-      const visualPreference = shadow.querySelector('[data-field="visualPreference"]');
-      visualPreference.value = settings.visualPreference;
-      const widgetSendMode = shadow.querySelector('[data-field="widgetSendMode"]');
-      widgetSendMode.value = settings.widgetSendMode;
-      langSelect.value = settings.protocolLanguage === "en" ? "en" : "zh";
-      const custom = shadow.querySelector('[data-field="customProtocol"]');
-      custom.value = settings.customProtocol || "";
+      const fields = shadow.querySelectorAll("[data-field]");
+      const applyToForm = (settings) => {
+        for (const field of fields) {
+          if (field.type === "checkbox") field.checked = settings[field.dataset.field];
+          else field.value = settings[field.dataset.field];
+        }
+      };
+      applyToForm(getSettings2());
+      for (const field of fields) {
+        const saveField = () => updateSettings({
+          [field.dataset.field]: field.type === "checkbox" ? field.checked : field.value
+        });
+        field.addEventListener(field.tagName === "TEXTAREA" ? "input" : "change", saveField);
+      }
       shadow.querySelector(".close").addEventListener("click", closePanel);
-      shadow.querySelector('[data-act="reset"]').addEventListener("click", () => {
-        const defaults = { ...DEFAULT_SETTINGS };
-        applyToForm(defaults);
-        save(defaults);
-      });
-      shadow.querySelector('[data-act="save"]').addEventListener("click", () => {
-        save(readForm());
-      });
-      const applyToForm = (s) => {
-        shadow.querySelectorAll("input[data-field]").forEach((input) => {
-          input.checked = Boolean(s[input.dataset.field]);
-        });
-        langSelect.value = s.protocolLanguage === "en" ? "en" : "zh";
-        visualPreference.value = s.visualPreference;
-        widgetSendMode.value = s.widgetSendMode;
-        custom.value = s.customProtocol || "";
-      };
-      const readForm = () => {
-        const next = { ...getSettings2() };
-        shadow.querySelectorAll("input[data-field]").forEach((input) => {
-          next[input.dataset.field] = input.checked;
-        });
-        next.protocolLanguage = langSelect.value;
-        next.visualPreference = visualPreference.value;
-        next.widgetSendMode = widgetSendMode.value;
-        next.customProtocol = custom.value.trim();
-        return next;
-      };
-      const save = (next) => {
-        const saved = saveSettings(next);
-        window.dispatchEvent(new CustomEvent("dsui:settings-changed", { detail: saved }));
-        syncFab(saved);
-        showToast("Intelligent UI 设置已保存");
-        closePanel();
-      };
+      shadow.querySelector('[data-act="reset"]').addEventListener("click", () => applyToForm(saveSettings(DEFAULT_SETTINGS)));
       const onKey = (event) => {
         if (event.key === "Escape") closePanel();
       };
       shadow.__onKey = onKey;
       document.addEventListener("keydown", onKey, true);
       document.body.appendChild(panelHost);
-      fab?.classList.add("is-open");
+      fab.classList.add("is-open");
     };
     const closePanel = () => {
       if (!panelHost) return;
@@ -36806,43 +36847,14 @@ select:focus, textarea:focus { border-color: var(--accent); }
       if (shadow?.__onKey) document.removeEventListener("keydown", shadow.__onKey, true);
       panelHost.remove();
       panelHost = null;
-      fab?.classList.remove("is-open");
-    };
-    const syncFab = (settings = getSettings2()) => {
-      const shouldShow = settings.showFab !== false;
-      if (shouldShow && !fab) {
-        fab = document.createElement("button");
-        fab.id = "dsui-fab";
-        fab.type = "button";
-        fab.title = "Intelligent UI 设置";
-        fab.setAttribute("aria-label", "Intelligent UI 设置");
-        fab.textContent = "✦";
-        fab.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openPanel();
-        });
-        document.body.appendChild(fab);
-        placeFab();
-        setTimeout(placeFab, 600);
-        setTimeout(placeFab, 1500);
-        if (!fabPlacementTimer) fabPlacementTimer = setInterval(placeFab, 1200);
-      } else if (!shouldShow && fab) {
-        clearInterval(fabPlacementTimer);
-        fabPlacementTimer = null;
-        fab.remove();
-        fab = null;
-        closePanel();
-      }
+      fab.classList.remove("is-open");
     };
     const placeFab = () => {
-      if (!fab) return;
       const fileInput = document.querySelector('input[type="file"]');
       const uploadRow = fileInput?.parentElement;
       if (uploadRow && uploadRow.querySelector('[role="button"]')) {
         if (fab.parentElement !== uploadRow) uploadRow.insertBefore(fab, uploadRow.firstElementChild);
         fab.classList.remove("dsui-fab-floating");
-        fab.title = "Intelligent UI 设置（注入协议 / 渲染 / 回传确认）";
         fab.hidden = false;
         return;
       }
@@ -36850,8 +36862,21 @@ select:focus, textarea:focus { border-color: var(--accent); }
       fab.classList.add("dsui-fab-floating");
       fab.hidden = false;
     };
-    syncFab();
-    return { openPanel, closePanel, syncFab };
+    fab.id = "dsui-fab";
+    fab.type = "button";
+    fab.title = "Intelligent UI 设置";
+    fab.setAttribute("aria-label", fab.title);
+    fab.textContent = "✦";
+    fab.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openPanel();
+    });
+    placeFab();
+    setTimeout(placeFab, 600);
+    setTimeout(placeFab, 1500);
+    setInterval(placeFab, 1200);
+    return { openPanel, closePanel };
   }
 
   // src/main.js
@@ -36881,7 +36906,7 @@ select:focus, textarea:focus { border-color: var(--accent); }
     registerMenu(ui);
     if (getSettings().debug) installDebugApi(ui);
     if (getSettings().debug) {
-      console.info("[DS-UI] booted", "1.5.1", "settings=", getSettings());
+      console.info("[DS-UI] booted", "1.5.2", "settings=", getSettings());
       setTimeout(() => console.info("[DS-UI] debug state", window.__dsui?.debugState?.()), 3e3);
     }
     window.addEventListener("beforeunload", () => rendererStop?.());
@@ -36890,19 +36915,9 @@ select:focus, textarea:focus { border-color: var(--accent); }
     try {
       if (typeof GM_registerMenuCommand !== "function") return;
       GM_registerMenuCommand("✦ Intelligent UI 设置", () => ui.openPanel());
-      GM_registerMenuCommand("切换「自动注入协议」", () => {
-        const next = updateSettings({ injectPrompt: !getSettings().injectPrompt });
-        showToast(next.injectPrompt ? "已开启协议注入" : "已关闭协议注入");
-      });
-      GM_registerMenuCommand("切换「自动渲染界面」", () => {
-        const next = updateSettings({ autoRender: !getSettings().autoRender });
-        showToast(next.autoRender ? "已开启自动渲染" : "已关闭自动渲染");
-        window.dispatchEvent(new CustomEvent("dsui:settings-changed", { detail: next }));
-      });
-      GM_registerMenuCommand("临时停用脚本（恢复原始代码块）", () => {
-        const next = updateSettings({ enabled: false });
-        window.dispatchEvent(new CustomEvent("dsui:settings-changed", { detail: next }));
-        showToast("已临时停用；重新开启请再点一次或刷新页面");
+      GM_registerMenuCommand("切换 Intelligent UI 总开关", () => {
+        const next = updateSettings({ enabled: !getSettings().enabled });
+        showToast(next.enabled ? "已启用 Intelligent UI" : "已停用 Intelligent UI");
       });
     } catch {
     }
@@ -36910,21 +36925,17 @@ select:focus, textarea:focus { border-color: var(--accent); }
   function installDebugApi(ui) {
     installWidgetMessageRouter();
     const api = {
-      version: "1.5.1",
+      version: "1.5.2",
       getSettings,
       saveSettings,
-      resetSettings: () => {
-        const saved = saveSettings({ ...DEFAULT_SETTINGS });
-        window.dispatchEvent(new CustomEvent("dsui:settings-changed", { detail: saved }));
-        return saved;
-      },
+      resetSettings: () => saveSettings(DEFAULT_SETTINGS),
       openSettings: () => ui.openPanel(),
       previewInjection: (text) => applyInjection(text, getSettings()),
       sendToChat,
       debugState() {
         return {
           settings: getSettings(),
-          version: "1.5.1",
+          version: "1.5.2",
           roots: document.querySelectorAll(".ds-markdown.ds-assistant-message-main-content").length,
           blocks: [...document.querySelectorAll(".md-code-block")].map((block) => ({
             lang: readLang(block),

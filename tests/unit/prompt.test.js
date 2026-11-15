@@ -8,7 +8,7 @@ import {
   stripInjection,
 } from '../../src/prompt.js';
 
-const settings = { injectPrompt: true, protocolLanguage: 'zh', customProtocol: '' };
+const settings = { enabled: true, protocolLanguage: 'zh', customProtocol: '' };
 
 describe('prompt injection', () => {
   it('appends a marked protocol block', () => {
@@ -34,7 +34,7 @@ describe('prompt injection', () => {
   });
 
   it('leaves the prompt untouched when injection is disabled', () => {
-    expect(applyInjection('你好', { ...settings, injectPrompt: false })).toBe('你好');
+    expect(applyInjection('你好', { ...settings, enabled: false })).toBe('你好');
   });
 
   it('trims trailing whitespace produced by stripping', () => {

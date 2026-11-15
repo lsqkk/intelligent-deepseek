@@ -45,16 +45,26 @@ export function getProtocol(settings) {
       : (en ? 'Use UI when requested or when it materially improves the task.' : '用户明确要求，或界面能明显帮助理解、计算或决策时，才生成组件。');
   const custom = String(settings?.customProtocol || '').replaceAll(PROMPT_START, '').replaceAll(PROMPT_END, '').trim();
   const label = en ? 'Additional presentation preferences (subject to the current request and component requirements)' : '附加呈现偏好（以本轮要求和组件约束为准）';
-  const cards = en
-    ? 'I. For current or forecast weather, use a dsui-weather fenced JSON block like {"city":"Beijing","days":5} (1–7 days, or "date":"YYYY-MM-DD" for one specific date). The client fetches weather; do not invent values. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.'
-    : 'I. 实况或预报用 dsui-weather 围栏 JSON 块，如 {"city":"北京","days":5}（1–7 天，指定某天可用 "date":"YYYY-MM-DD"）。由客户端查天气，勿编造数值。地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。';
-  return [trigger, base, en ? EN_IMAGES : ZH_IMAGES, cards, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
+  const images = settings?.inlineImages === false
+    ? (en ? 'H. Inline image enhancements are off for this session. Do not emit dsui-image blocks.' : 'H. 当前关闭回答内配图增强，不要输出 dsui-image 块。')
+    : (en ? EN_IMAGES : ZH_IMAGES);
+  const weather = settings?.weatherCards === false
+    ? (en ? 'I. Weather cards are off. Do not emit dsui-weather blocks; answer in text and do not invent values.' : 'I. 当前关闭天气卡，不要输出 dsui-weather 块；请用正文回答，勿编造天气数据。')
+    : (en
+      ? 'I. For current or forecast weather, use a dsui-weather fenced JSON block like {"city":"Beijing","days":5} (1–7 days, or "date":"YYYY-MM-DD" for one specific date). The client fetches weather; do not invent values.'
+      : 'I. 实况或预报用 dsui-weather 围栏 JSON 块，如 {"city":"北京","days":5}（1–7 天，指定某天可用 "date":"YYYY-MM-DD"）。由客户端查天气，勿编造数值。');
+  const map = settings?.mapCards === false
+    ? (en ? 'J. Map cards are off. Do not emit dsui-map blocks; give places and routes in the reply text.' : 'J. 当前关闭地图卡，不要输出 dsui-map 块；地点和路线请写在正文里。')
+    : (en
+      ? 'J. For maps, use a dsui-map fenced JSON block like {"city":"Xi’an","places":["Stele Forest Museum","Bell Tower"]}. Give up to 8 ordered public places with specific names. For multiple cities, omit city and qualify each name with its city. The client looks up coordinates. Only use ["name",latitude,longitude] when the user provided exact WGS84 coordinates. Keep place names in the text as a fallback.'
+      : 'J. 地点分布或行程用 dsui-map 围栏 JSON 块，如 {"city":"西安","places":["碑林博物馆","钟楼"]}。按顺序写最多 8 个具体的公开地标。跨城市时省略 city，在每个地名里带上城市。坐标由客户端查；用户已提供精确 WGS84 坐标时才用 ["地名",纬度,经度]。正文保留地名。');
+  return [trigger, base, images, weather, map, custom && `${label}\n${custom}`].filter(Boolean).join('\n');
 }
 
 /** 把协议追加到用户 prompt 末尾；若已有旧注入则先剥离，避免重复累积 */
 export function applyInjection(prompt, settings) {
   const clean = stripInjection(String(prompt ?? ''));
-  if (!settings?.injectPrompt || !clean.trim()) return clean;
+  if (settings?.enabled === false || !clean.trim()) return clean;
   return `${clean}\n\n${PROMPT_START}\n${getProtocol(settings)}\n${PROMPT_END}`;
 }
 
